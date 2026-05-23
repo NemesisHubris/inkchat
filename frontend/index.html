@@ -71,6 +71,7 @@
             border: 1px solid #000000;
             font-size: 15px;
             line-height: 1.5;
+            text-align: left;
         }
         .message-incoming {
             background-color: #ffffff;
@@ -130,21 +131,221 @@
             color: #555555;
             line-height: 1.6;
         }
+
+        /* High-Contrast E-Ink Optimized Auth Overlay styling */
+        .auth-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        .auth-card {
+            border: 5px solid #000000;
+            width: 100%;
+            max-width: 420px;
+            padding: 30px 20px;
+            background: #ffffff;
+        }
+        .auth-tabs {
+            display: flex;
+            border-bottom: 3px solid #000000;
+            margin-bottom: 20px;
+        }
+        .auth-tab {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: #ffffff;
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            text-align: center;
+        }
+        .auth-tab.tab-active {
+            background: #000000;
+            color: #ffffff;
+        }
+        .input-group {
+            margin-bottom: 15px;
+            text-align: left;
+            width: 100%;
+        }
+        .input-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .auth-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #000000;
+            font-size: 16px;
+            font-family: inherit;
+        }
+        .auth-btn {
+            width: 100%;
+            background-color: #000000;
+            color: #ffffff;
+            border: none;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .auth-btn:hover {
+            background-color: #333333;
+        }
+        .auth-btn:disabled {
+            background-color: #e0e0e0;
+            color: #888888;
+            cursor: not-allowed;
+        }
+        .tos-row {
+            margin: 15px 0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tos-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #000000;
+        }
+        .tos-link {
+            text-decoration: underline;
+            font-weight: bold;
+            cursor: pointer;
+            color: #000000;
+        }
+        .auth-error-msg {
+            margin-top: 15px;
+            border: 2px solid #000000;
+            padding: 10px;
+            background-color: #ffffff;
+            color: #000000;
+            font-weight: bold;
+            font-size: 13px;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* Terms of Use Modal overlay */
+        .tos-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+        .tos-content {
+            border: 5px solid #000000;
+            width: 100%;
+            max-width: 480px;
+            padding: 30px 20px;
+            background: #ffffff;
+            text-align: left;
+        }
+        .tos-content h2 {
+            font-size: 22px;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 8px;
+        }
+        .tos-text {
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 25px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+        .tos-text p {
+            margin-bottom: 10px;
+        }
+        .tos-close-btn {
+            background-color: #000000;
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
 
-    <div class="app-container">
+    <!-- Auth Overlay Modal (Tabbed Register/Login) -->
+    <div id="authOverlay" class="auth-overlay" style="display: none;">
+        <div class="auth-card">
+            <div class="auth-tabs">
+                <button id="tabLogin" class="auth-tab tab-active" onclick="switchAuthTab('login');">Login</button>
+                <button id="tabRegister" class="auth-tab" onclick="switchAuthTab('register');">Register</button>
+            </div>
+            
+            <form id="authForm" onsubmit="return handleAuthSubmit(event);">
+                <div id="authFields">
+                    <div class="input-group">
+                        <label for="authUsername">Username</label>
+                        <input id="authUsername" type="text" class="auth-input" required autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="authPassword">Password</label>
+                        <input id="authPassword" type="password" class="auth-input" required>
+                    </div>
+                    <div id="tosRow" class="tos-row" style="display: none;">
+                        <input id="tosCheck" type="checkbox">
+                        <label for="tosCheck">I agree to the <span class="tos-link" onclick="showTosModal(event);">Terms of Use</span></label>
+                    </div>
+                </div>
+                
+                <button id="authBtn" type="submit" class="auth-btn">Log In</button>
+                <div id="authError" class="auth-error-msg" style="display: none;"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Terms of Use Modal -->
+    <div id="tosModal" class="tos-modal" style="display: none;">
+        <div class="tos-content">
+            <h2>Terms of Use</h2>
+            <div class="tos-text">
+                <p><strong>1. Robust Intellectual Discourse:</strong> InkChat is built strictly to facilitate open, robust, and unfiltered philosophical and political debate.</p>
+                <p><strong>2. Immediate Zero-Tolerance Lockouts:</strong> Threatening physical violence, sharing sexually explicit materials, or spamming profanity will result in a permanent hardware lockout ban.</p>
+                <p><strong>3. Spoofing and Automated Actions:</strong> spoofs or automated scripting profiles are blocked at the gate to ensure genuine human-to-human terminal interactions.</p>
+            </div>
+            <button class="tos-close-btn" onclick="hideTosModal();">Close</button>
+        </div>
+    </div>
+
+    <!-- Main Workspace Container -->
+    <div id="mainWorkspace" class="app-container" style="display: none;">
         <div class="header">
             <h1>InkChat</h1>
-            <div id="badge" class="status-badge status-verifying">Security Handshake In Progress...</div>
+            <div id="badge" class="status-badge status-ready">Secure Link Active</div>
         </div>
 
-        <div id="chatBox" class="chat-box">
-            <div class="message-bubble message-incoming">
-                <strong>[System]</strong> Welcome to InkChat. Commencing hardware screening...
-            </div>
-        </div>
+        <div id="chatBox" class="chat-box"></div>
 
         <form id="chatForm" onsubmit="return handleMessageSubmit(event);">
             <div class="input-row">
@@ -154,7 +355,7 @@
         </form>
 
         <div class="metadata-section">
-            <strong>My Session ID:</strong> <span id="userIdDisplay">Loading...</span><br>
+            <strong>Logged Account:</strong> <span id="userIdDisplay">Loading...</span><br>
             <strong>Active Device Token:</strong> <span id="deviceToken">Verifying...</span><br>
             <strong>E-Ink Optimization:</strong> Polling Engine active (5000ms loop). High contrast active.
         </div>
@@ -164,11 +365,14 @@
     <script src="kindle-telemetry.js" type="text/javascript"></script>
 
     <script type="text/javascript">
-        var activeUserId = null;
+        var activeUserId = null; // Stored username for greeting
+        var activeSessionToken = null; // Secure cryptographic token
         var activeDeviceFingerprint = null;
         var pollingIntervalId = null;
+        var lastMessageHash = "";
+        var authMode = "login"; // "login" or "register"
 
-        // Session Cookie Utilities
+        // Cookie Utilities
         function getCookie(name) {
             var nameEQ = name + "=";
             var ca = document.cookie.split(';');
@@ -184,87 +388,198 @@
             var date = new Date();
             date.setFullYear(date.getFullYear() + 10);
             var expires = "; expires=" + date.toUTCString();
-            document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict";
+            document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict; Secure";
         }
-
-        // Initialize session-based User ID
-        activeUserId = getCookie("inkchat_user_id");
-        if (!activeUserId) {
-            // Generate a simple, unique user identifier
-            activeUserId = "user_" + Math.floor(10000 + Math.random() * 90000);
-            setHardCookie("inkchat_user_id", activeUserId);
-        }
-        document.getElementById("userIdDisplay").innerHTML = activeUserId;
 
         // Bind to custom event dispatched by kindle-telemetry.js
         if (window.addEventListener) {
             window.addEventListener("inkDeviceReady", function(e) {
-                initializeChatWorkspace(e.detail.fingerprint);
+                activeDeviceFingerprint = e.detail.fingerprint;
+                document.getElementById("deviceToken").innerHTML = activeDeviceFingerprint.substring(0, 15) + "...";
+                
+                // Session Check: If secure token cookie exists, bypass login overlay and jump to workspace
+                activeSessionToken = getCookie("inkchat_session_token");
+                activeUserId = getCookie("inkchat_username");
+                if (activeSessionToken && activeUserId) {
+                    initializeChatWorkspace();
+                } else {
+                    document.getElementById("authOverlay").style.display = "flex";
+                }
             }, false);
         } else if (window.attachEvent) {
             window.attachEvent("oninkDeviceReady", function(e) {
-                initializeChatWorkspace(e.detail.fingerprint);
+                activeDeviceFingerprint = e.detail.fingerprint;
+                document.getElementById("deviceToken").innerHTML = activeDeviceFingerprint.substring(0, 15) + "...";
+                
+                activeSessionToken = getCookie("inkchat_session_token");
+                activeUserId = getCookie("inkchat_username");
+                if (activeSessionToken && activeUserId) {
+                    initializeChatWorkspace();
+                } else {
+                    document.getElementById("authOverlay").style.display = "flex";
+                }
             });
         }
 
-        function initializeChatWorkspace(token) {
-            activeDeviceFingerprint = token;
+        // Tab and Layout Management inside Auth Overlay
+        function switchAuthTab(mode) {
+            authMode = mode;
+            var tabLogin = document.getElementById("tabLogin");
+            var tabRegister = document.getElementById("tabRegister");
+            var tosRow = document.getElementById("tosRow");
+            var authBtn = document.getElementById("authBtn");
+            var authError = document.getElementById("authError");
 
-            // Update UI status badges
-            var badge = document.getElementById("badge");
-            badge.className = "status-badge status-ready";
-            badge.innerHTML = "Secure Link Active";
+            authError.style.display = "none";
 
-            document.getElementById("deviceToken").innerHTML = token.substring(0, 15) + "...";
+            if (mode === "login") {
+                tabLogin.className = "auth-tab tab-active";
+                tabRegister.className = "auth-tab";
+                tosRow.style.display = "none";
+                authBtn.innerHTML = "Log In";
+            } else {
+                tabLogin.className = "auth-tab";
+                tabRegister.className = "auth-tab tab-active";
+                tosRow.style.display = "flex";
+                authBtn.innerHTML = "Register & Log In";
+            }
+        }
 
-            // Map and bind the device to the User ID in Redis to lock it
-            if (window.InkDeviceManager && typeof window.InkDeviceManager.registerCurrentDevice === "function") {
-                window.InkDeviceManager.registerCurrentDevice(activeUserId, function(err, res) {
+        function showTosModal(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            document.getElementById("tosModal").style.display = "flex";
+            return false;
+        }
+
+        function hideTosModal() {
+            document.getElementById("tosModal").style.display = "none";
+        }
+
+        /**
+         * Authentication Handler
+         */
+        function handleAuthSubmit(event) {
+            if (event.preventDefault) event.preventDefault();
+
+            var usernameInput = document.getElementById("authUsername");
+            var passwordInput = document.getElementById("authPassword");
+            var tosCheck = document.getElementById("tosCheck");
+            var authBtn = document.getElementById("authBtn");
+            var authError = document.getElementById("authError");
+
+            var username = usernameInput.value.trim();
+            var password = passwordInput.value;
+
+            if (!username || !password) return false;
+
+            // Enforce username constraints (alphanumeric only, no spaces)
+            var cleanUsername = username.replace(/[^a-zA-Z0-9_]/g, "");
+            if (cleanUsername !== username) {
+                authError.innerHTML = "Username must be alphanumeric (letters, numbers, underscores) only.";
+                authError.style.display = "block";
+                return false;
+            }
+
+            // Registration Check: Verify Terms agreement
+            if (authMode === "register" && !tosCheck.checked) {
+                authError.innerHTML = "You must agree to the Terms of Use to register an account.";
+                authError.style.display = "block";
+                return false;
+            }
+
+            // Lock inputs
+            usernameInput.disabled = true;
+            passwordInput.disabled = true;
+            authBtn.disabled = true;
+            authError.style.display = "none";
+
+            if (authMode === "login") {
+                window.InkChatEngine.login(username, password, activeDeviceFingerprint, function(err, response) {
+                    unlockAuthFields();
                     if (err) {
-                        appendSystemMessage("Device registration lock failed. Session restricted.");
-                        return;
+                        authError.textContent = err.message || "Invalid username or password.";
+                        authError.style.display = "block";
+                    } else if (response && response.status === "SUCCESS") {
+                        activeUserId = response.username;
+                        activeSessionToken = response.token;
+                        
+                        // Cryptographic Session Token Cookie Storage
+                        setHardCookie("inkchat_session_token", activeSessionToken);
+                        setHardCookie("inkchat_username", activeUserId); // Saved strictly for UI greeting
+                        
+                        document.getElementById("authOverlay").style.display = "none";
+                        initializeChatWorkspace();
                     }
-                    
-                    // Enable text input fields
-                    document.getElementById("messageInput").removeAttribute("disabled");
-                    document.getElementById("sendBtn").removeAttribute("disabled");
-                    appendSystemMessage("Device registered. Multi-account policy check active.");
-
-                    // Launch the 5-second polling engine
-                    pollMessages();
-                    pollingIntervalId = setInterval(pollMessages, 5000);
                 });
             } else {
-                // Fallback enabled
-                document.getElementById("messageInput").removeAttribute("disabled");
-                document.getElementById("sendBtn").removeAttribute("disabled");
-                pollMessages();
-                pollingIntervalId = setInterval(pollMessages, 5000);
+                window.InkChatEngine.register(username, password, activeDeviceFingerprint, function(err, response) {
+                    unlockAuthFields();
+                    if (err) {
+                        authError.textContent = err.message || "Registration failed.";
+                        authError.style.display = "block";
+                    } else if (response && response.status === "SUCCESS") {
+                        activeUserId = response.username;
+                        activeSessionToken = response.token;
+                        
+                        setHardCookie("inkchat_session_token", activeSessionToken);
+                        setHardCookie("inkchat_username", activeUserId);
+                        
+                        document.getElementById("authOverlay").style.display = "none";
+                        initializeChatWorkspace();
+                    }
+                });
             }
+
+            function unlockAuthFields() {
+                usernameInput.disabled = false;
+                passwordInput.disabled = false;
+                authBtn.disabled = false;
+            }
+
+            return false;
+        }
+
+        function initializeChatWorkspace() {
+            // Display username in metadata
+            document.getElementById("userIdDisplay").innerHTML = activeUserId;
+
+            // Display workspace panel
+            document.getElementById("mainWorkspace").style.display = "block";
+
+            // Enable inputs
+            document.getElementById("messageInput").removeAttribute("disabled");
+            document.getElementById("sendBtn").removeAttribute("disabled");
+
+            appendSystemMessage("Workspace loaded. Authenticated as: " + activeUserId);
+
+            // Launch the 5-second polling engine
+            pollMessages();
+            pollingIntervalId = setInterval(pollMessages, 5000);
         }
 
         function appendSystemMessage(text) {
             var chatBox = document.getElementById("chatBox");
             var bubble = document.createElement("div");
             bubble.className = "message-bubble message-incoming";
-            bubble.innerHTML = "<strong>[System]</strong> " + text;
+            
+            var meta = document.createElement("div");
+            meta.className = "msg-meta";
+            var label = document.createElement("strong");
+            label.textContent = "[System]";
+            meta.appendChild(label);
+
+            var textDiv = document.createElement("div");
+            textDiv.textContent = text;
+
+            bubble.appendChild(meta);
+            bubble.appendChild(textDiv);
             chatBox.appendChild(bubble);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        // High-performance ES5 HTML escaping to prevent XSS
-        function escapeHtml(str) {
-            return str
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
         /**
          * E-Ink Polling Routine
-         * Queries GET /api/get-messages every 5 seconds.
+         * SECURE HARDENING: Constructs DOM programmatically via textContent to fully block XSS.
          */
         function pollMessages() {
             if (!window.InkChatEngine || typeof window.InkChatEngine.getMessages !== "function") {
@@ -277,8 +592,20 @@
                     return;
                 }
 
+                if (!messages || typeof messages.join !== "function") {
+                    return;
+                }
+
+                var currentHash = messages.join("|");
+                if (currentHash === lastMessageHash) {
+                    return;
+                }
+                lastMessageHash = currentHash;
+
                 var chatBox = document.getElementById("chatBox");
-                var html = "";
+                
+                // Clear the chatBox DOM container securely
+                chatBox.innerHTML = "";
 
                 // Reverse the array to render in chronological order (oldest -> newest at bottom)
                 var chronMessages = messages.slice().reverse();
@@ -289,34 +616,87 @@
                         var timeString = new Date(msgObj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         
                         // Mask evaluation: determine if it's the current user sending
-                        // The backend masks the User ID (e.g. user_12345 becomes user_1***5)
-                        // We check if the masked ID matches our own masked ID or a standard match
+                        // Short Username Fix: Only mask outgoing ID if length > 6, mirroring the backend
                         var isMyOutgoing = false;
-                        var myMasked = activeUserId.substring(0, 5) + "***" + activeUserId.substring(activeUserId.length - 2);
+                        var myMasked = activeUserId;
+                        if (activeUserId.length > 6) {
+                            myMasked = activeUserId.substring(0, 5) + "***" + activeUserId.substring(activeUserId.length - 2);
+                        }
+
                         if (msgObj.userId === myMasked) {
                             isMyOutgoing = true;
                         }
 
-                        var bubbleClass = isMyOutgoing ? "message-bubble message-outgoing" : "message-bubble message-incoming";
+                        // Programmatic DOM Construction - XSS Prevention (Strict TextContent usage)
+                        var bubble = document.createElement("div");
+                        bubble.className = isMyOutgoing ? "message-bubble message-outgoing" : "message-bubble message-incoming";
 
-                        html += "<div class='" + bubbleClass + "'>" +
-                                "<div class='msg-meta'>" +
-                                "<strong>" + escapeHtml(msgObj.userId) + "</strong>" +
-                                "<span class='msg-time'>" + timeString + "</span>" +
-                                "</div>" +
-                                "<div>" + escapeHtml(msgObj.text) + "</div>" +
-                                "</div>";
+                        var meta = document.createElement("div");
+                        meta.className = "msg-meta";
+
+                        var userLabel = document.createElement("strong");
+                        userLabel.textContent = msgObj.userId; // Secure text insertion
+
+                        var timeLabel = document.createElement("span");
+                        timeLabel.className = "msg-time";
+                        timeLabel.textContent = timeString; // Secure text insertion
+
+                        meta.appendChild(userLabel);
+                        meta.appendChild(timeLabel);
+
+                        var textDiv = document.createElement("div");
+                        textDiv.textContent = msgObj.text; // SECURE: textContent completely disables HTML/JS execution!
+
+                        bubble.appendChild(meta);
+                        bubble.appendChild(textDiv);
+                        chatBox.appendChild(bubble);
+
                     } catch (e) {
                         // Skip corrupted frames
                     }
                 }
-
-                // If chat index differs, update DOM to limit screen ghosts
-                if (html) {
-                    chatBox.innerHTML = html;
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                }
+                
+                chatBox.scrollTop = chatBox.scrollHeight;
             });
+        }
+
+        /**
+         * Temporary High-Contrast On-Screen Notice for E-Ink Displays
+         */
+        function showNotice(text) {
+            var notice = document.getElementById("tempNotice");
+            if (!notice) {
+                notice = document.createElement("div");
+                notice.id = "tempNotice";
+                notice.style.position = "fixed";
+                notice.style.bottom = "100px";
+                notice.style.left = "50%";
+                notice.style.transform = "translateX(-50%)";
+                notice.style.backgroundColor = "#000000";
+                notice.style.color = "#ffffff";
+                notice.style.border = "2px solid #ffffff";
+                notice.style.outline = "2px solid #000000";
+                notice.style.padding = "10px 20px";
+                notice.style.fontFamily = "inherit";
+                notice.style.fontSize = "14px";
+                notice.style.fontWeight = "bold";
+                notice.style.textTransform = "uppercase";
+                notice.style.letterSpacing = "1px";
+                notice.style.zIndex = "9999";
+                notice.style.textAlign = "center";
+                notice.style.whiteSpace = "nowrap";
+                document.body.appendChild(notice);
+            }
+            notice.textContent = text;
+            notice.style.display = "block";
+
+            // Clear any active timeout to prevent race condition
+            if (window.noticeTimeoutId) {
+                clearTimeout(window.noticeTimeoutId);
+            }
+            window.noticeTimeoutId = setTimeout(function() {
+                notice.style.display = "none";
+            }, 3000);
         }
 
         /**
@@ -335,13 +715,20 @@
             sendBtn.disabled = true;
 
             if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
-                window.InkChatEngine.sendMessage(text, activeUserId, activeDeviceFingerprint, function(err, response) {
+                // Pass secure cryptographic activeSessionToken instead of raw activeUserId
+                window.InkChatEngine.sendMessage(text, activeSessionToken, activeDeviceFingerprint, function(err, response) {
                     // Unlock fields
                     input.disabled = false;
                     sendBtn.disabled = false;
 
                     if (err) {
-                        alert("Message dropped: Connection error.");
+                        if (err.status === 429) {
+                            showNotice("Slow down! Chat is moving too fast.");
+                        } else if (err.status === 409) {
+                            showNotice("Duplicate message blocked.");
+                        } else {
+                            alert("Message dropped: " + err.message);
+                        }
                         return;
                     }
 

@@ -181,8 +181,16 @@
 
         var siliconScore = getSiliconLotteryBenchmark();
         var AudioCtxClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        var audioTimeout = null;
+        var audioCompleted = false;
 
         function compileSignature(enginePayload) {
+            if (audioTimeout) {
+                clearTimeout(audioTimeout);
+                audioTimeout = null;
+            }
+            audioCompleted = true;
+
             var rawSignature = [
                 "screen:" + screenGeometry,
                 "font:" + fontGeometry,
@@ -208,6 +216,17 @@
         if (AudioCtxClass) {
             try {
                 var audioCtx = new AudioCtxClass(1, 44100 * 0.1, 44100);
+                
+                // Kindle Freeze Watchdog: Stalls resolved via 100ms fallback timeout (Stability patch)
+                audioTimeout = setTimeout(function () {
+                    if (!audioCompleted) {
+                        try {
+                            if (audioCtx.oncomplete) audioCtx.oncomplete = null;
+                        } catch (e) {}
+                        compileSignature(scrapeBlobConstructorException());
+                    }
+                }, 100);
+
                 var osc = audioCtx.createOscillator();
                 var compressor = audioCtx.createDynamicsCompressor();
 
@@ -232,6 +251,7 @@
                 }
 
                 audioCtx.oncomplete = function (event) {
+                    if (audioCompleted) return; // Watchdog already resolved
                     var audioHash = "audio-hash-error";
                     try {
                         var buffer = event.renderedBuffer;
@@ -267,7 +287,7 @@
         var date = new Date();
         date.setFullYear(date.getFullYear() + 10); // Strict 10-year expiration
         var expires = "; expires=" + date.toUTCString();
-        document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict";
+        document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict; Secure";
     }
 
     function readCookie(name) {
@@ -388,7 +408,19 @@
                     }
                     callback(null, parsedResponse);
                 } else {
-                    callback(new Error("Handshake HTTP " + xhr.status + ": " + xhr.statusText), null);
+                    var msg = "";
+                    if (xhr.status === 0) {
+                        msg = "Network Disconnection or CORS Blocked";
+                    } else {
+                        var errObj = null;
+                        try {
+                            errObj = JSON.parse(xhr.responseText);
+                        } catch (e) {}
+                        msg = (errObj && errObj.message) ? errObj.message : (xhr.statusText || "");
+                    }
+                    var err = new Error(msg);
+                    err.status = xhr.status;
+                    callback(err, null);
                 }
             }
         };
@@ -479,10 +511,26 @@
      * Written strictly in ES5 JavaScript using raw XHR protocols.
      */
     window.InkChatEngine = {
-        sendMessage: function (text, userId, fingerprint, callback) {
+        login: function (username, password, fingerprint, callback) {
+            var payload = {
+                username: username,
+                password: password,
+                fingerprint: fingerprint
+            };
+            dispatchXhrPost(CONFIG.apiBase + "/api/login", payload, callback);
+        },
+        register: function (username, password, fingerprint, callback) {
+            var payload = {
+                username: username,
+                password: password,
+                fingerprint: fingerprint
+            };
+            dispatchXhrPost(CONFIG.apiBase + "/api/register", payload, callback);
+        },
+        sendMessage: function (text, sessionToken, fingerprint, callback) {
             var payload = {
                 text: text,
-                userId: userId,
+                sessionToken: sessionToken,
                 fingerprint: fingerprint
             };
             dispatchXhrPost(CONFIG.apiBase + "/api/send-message", payload, callback);
@@ -533,8 +581,8 @@
      * Self-executing Load Routing Hook
      */
     function executeTelemetrySync() {
-        // Link dynamically to standard inkchat_user_id session cookie
-        CONFIG.currentUserId = readCookie("inkchat_user_id");
+        // Cryptographic session token cookie linkage inside initial hardware handshake payload
+        CONFIG.currentUserId = readCookie("inkchat_session_token");
 
         syncLocalStorageAndCookie(function (token, err) {
             if (err === "DESKTOP_SPOOF_DETECTED") {
@@ -553,7 +601,11 @@
                 currentUserId: CONFIG.currentUserId
             }, function (handshakeErr, response) {
                 if (handshakeErr) {
-                    enforceDeviceLockout("Handshake Gateway Failure. The security verification server could not be resolved.");
+                    if (handshakeErr.status === 403) {
+                        enforceDeviceLockout(handshakeErr.message || "This physical hardware terminal has been banned permanently due to content violations.");
+                    } else {
+                        enforceDeviceLockout("Handshake Gateway Failure. The security verification server could not be resolved.");
+                    }
                     return;
                 }
 
