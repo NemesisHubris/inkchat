@@ -17,7 +17,7 @@ To guarantee high throughput and sub-5ms lookups, InkChat utilizes a single, lig
 
 ---
 
-## 2. Upstash REST API Administration Reference
+## 2. Upstash REST API Administration Reference 
 
 The Upstash serverless REST API accepts HTTP `POST` commands structured as raw JSON arrays. You must supply your unique Upstash endpoint and REST Token to execute administrative operations.
 
