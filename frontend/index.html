@@ -752,6 +752,7 @@
         var isInboxOpen = false;
         var dismissedNotificationTimestamps = [];
         var bootWatchdogId = null;
+        var sendInFlight = false;
         try {
             var stored = localStorage.getItem("inkchat_dismissed_notifications");
             if (stored) {
@@ -1471,6 +1472,42 @@
             }, 4000);
         }
 
+        function addOptimisticMessage(text) {
+            var chatBox = document.getElementById("chatBox");
+            if (!chatBox) return null;
+            var tempId = "opt-" + Date.now();
+            var maskedId = activeUserId || "You";
+            if (activeUserId && activeUserId.length > 6) {
+                maskedId = activeUserId.substring(0, 5) + "***" + activeUserId.substring(activeUserId.length - 2);
+            }
+            var bubble = document.createElement("div");
+            bubble.id = tempId;
+            bubble.className = "message-bubble message-outgoing";
+            bubble.style.opacity = "0.55";
+            var meta = document.createElement("div");
+            meta.className = "msg-meta";
+            var userLabel = document.createElement("strong");
+            userLabel.textContent = maskedId;
+            var timeLabel = document.createElement("span");
+            timeLabel.className = "msg-time";
+            timeLabel.textContent = "sending…";
+            meta.appendChild(userLabel);
+            meta.appendChild(timeLabel);
+            var textDiv = document.createElement("div");
+            textDiv.textContent = text;
+            bubble.appendChild(meta);
+            bubble.appendChild(textDiv);
+            chatBox.appendChild(bubble);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return tempId;
+        }
+
+        function removeOptimisticMessage(tempId) {
+            if (!tempId) return;
+            var el = document.getElementById(tempId);
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        }
+
         // SYSTEM NOTICES
         function showNotice(text) {
             var notice = document.getElementById("tempNotice");
@@ -1512,67 +1549,55 @@
             if (event && event.preventDefault) event.preventDefault();
 
             var input = document.getElementById("messageInput");
-            var sendBtn = document.getElementById("sendBtn");
             var text = input.value.trim();
-            if (!text) return false;
+            if (!text || sendInFlight) return false;
 
-            // Prevent double-submit
-            if (sendBtn.disabled) return false;
-
-            // Clear field immediately and lock UI
+            // Optimistic: show message instantly, clear input, don't lock UI
+            sendInFlight = true;
             input.value = "";
-            input.disabled = true;
-            sendBtn.disabled = true;
-            sendBtn.textContent = "...";
+            document.getElementById("sendError").style.display = "none";
+            cancelActiveReply();
 
-            // Layer 1: safety timeout — unlock UI unconditionally after 10s
-            var unlockTimer = setTimeout(function() {
-                input.disabled = false;
-                sendBtn.disabled = false;
-                sendBtn.textContent = "Send";
-            }, 10000);
+            var tempId = addOptimisticMessage(text);
 
-            function unlock() {
-                clearTimeout(unlockTimer);
-                input.disabled = false;
-                sendBtn.disabled = false;
-                sendBtn.textContent = "Send";
+            if (!window.InkChatEngine || typeof window.InkChatEngine.sendMessage !== "function") {
+                sendInFlight = false;
+                removeOptimisticMessage(tempId);
+                input.value = text;
+                return false;
             }
 
-            if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
-                // Layer 2: try-catch so a thrown exception still unlocks the UI
-                try {
-                    var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
-                    window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
-                        unlock();
+            var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
+            try {
+                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
+                    sendInFlight = false;
 
-                        if (err) {
-                            var errMsg = err.status === 429 ? "Slow down — wait a moment before sending again." :
-                                         err.status === 409 ? "Already sent — type something new." :
-                                         "Send failed. Try again.";
-                            if (err.status !== 409) input.value = text;
-                            showSendError(errMsg);
-                            return;
-                        }
+                    if (err) {
+                        removeOptimisticMessage(tempId);
+                        input.value = text;
+                        var errMsg = err.status === 429 ? "Slow down — wait a moment before sending again." :
+                                     err.status === 409 ? "Already sent — type something new." :
+                                     "Send failed. Try again.";
+                        showSendError(errMsg);
+                        return;
+                    }
 
-                        if (response && response.status === "ERROR") {
-                            input.value = text;
-                            showSendError(response.message || "Message blocked.");
-                            return;
-                        }
+                    if (response && response.status === "ERROR") {
+                        removeOptimisticMessage(tempId);
+                        input.value = text;
+                        showSendError(response.message || "Message blocked.");
+                        return;
+                    }
 
-                        document.getElementById("sendError").style.display = "none";
-                        cancelActiveReply();
-                        pollMessages();
-                        input.focus();
-                    });
-                } catch (e) {
-                    // Layer 3: if sendMessage itself throws, still unlock
-                    unlock();
-                    showSendError("Send failed. Try again.");
-                }
-            } else {
-                unlock();
+                    // Confirmed — poll to replace optimistic bubble with server version
+                    pollMessages();
+                    input.focus();
+                });
+            } catch (e) {
+                sendInFlight = false;
+                removeOptimisticMessage(tempId);
+                input.value = text;
+                showSendError("Send failed. Try again.");
             }
 
             return false;
