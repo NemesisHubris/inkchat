@@ -1,1302 +1,994 @@
-export { ChatRoom } from "./chat-room.js";
+export { ChatRoom } from './chat-room.js';
+
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS = [
-    "https://chat.kindlemodshelf.me",
-    "https://inkchat.kindlemodshelf.workers.dev",
-    "http://localhost:8000"
+    'https://chat.kindlemodshelf.me',
+    'https://inkchat.kindlemodshelf.workers.dev',
+    'http://localhost:8000'
 ];
-const USER_SESSION_COOKIE       = "inkchat_session";
-const ADMIN_SESSION_COOKIE      = "inkchat_admin_session";
-const USER_SESSION_TTL_SECONDS  = 2592000;  // 30 days
-const ADMIN_SESSION_TTL_SECONDS = 7200;     // 2 hours
-const PBKDF2_ITERATIONS         = 100000;
-const PBKDF2_KEY_BYTES          = 32;
+
+const SESSION_COOKIE       = 'inkchat_session';
+const ADMIN_COOKIE         = 'inkchat_admin_session';
+const SESSION_TTL          = 2592000;   // 30 days
+const ADMIN_SESSION_TTL    = 7200;      // 2 hours
+const PBKDF2_ITERATIONS    = 100000;
+const PBKDF2_KEY_BYTES     = 32;
+const MESSAGE_LIMIT        = 100;       // max stored messages
+const MESSAGE_MAX_LENGTH   = 500;
+
+// ── Entry point ──────────────────────────────────────────────────────────────
 
 export default {
     async fetch(request, env, ctx) {
         const url      = new URL(request.url);
-        const pathname = url.pathname;
-        const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
-        const ua       = request.headers.get("User-Agent") || "";
+        const path     = url.pathname;
+        const origin   = request.headers.get('Origin');
+        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const ua       = request.headers.get('User-Agent') || '';
 
-        const isAdminPath = pathname === "/admin.html" || pathname.startsWith("/api/admin");
-        const isLoopback  = clientIp === "127.0.0.1";
-
-        // Admin panel — desktop workstations only, reject mobile/Kindle UA strings
-        if (pathname === "/admin.html") {
-            if (/Kindle|Paperwhite|Silk|Android|iPhone|iPad|iPod|Mobile|Phone/i.test(ua)) {
-                return new Response("Forbidden: Administrative console is restricted to desktop workstations.", {
-                    status: 403,
-                    headers: { "Content-Type": "text/plain" }
-                });
-            }
+        // Block admin panel from mobile/Kindle UA
+        if (path === '/admin.html' &&
+            /Kindle|Paperwhite|Silk|Android|iPhone|iPad|Mobile/i.test(ua)) {
+            return new Response('Admin console restricted to desktop.', { status: 403 });
         }
 
-        const origin = request.headers.get("Origin");
+        // CORS
         const isLocalOrigin = origin && (
-            origin === "null" ||
-            origin.startsWith("http://localhost:") ||
-            origin.startsWith("http://127.0.0.1:") ||
-            origin === "http://localhost" ||
-            origin === "http://127.0.0.1"
+            origin === 'null' ||
+            origin.startsWith('http://localhost:') ||
+            origin.startsWith('http://127.0.0.1:')
         );
-
-        if (origin && !isLocalOrigin && ALLOWED_ORIGINS.indexOf(origin) === -1) {
-            return new Response(JSON.stringify({ error: "CORS Policy: Origin unauthorized." }), {
-                status: 403,
-                headers: { "Content-Type": "application/json" }
+        if (origin && !isLocalOrigin && !ALLOWED_ORIGINS.includes(origin)) {
+            return new Response(JSON.stringify({ error: 'Origin not allowed.' }), {
+                status:  403,
+                headers: { 'Content-Type': 'application/json' }
             });
         }
+        const cors = buildCorsHeaders(origin);
 
-        const corsHeaders = {
-            "Access-Control-Allow-Origin":      origin || "https://chat.kindlemodshelf.me",
-            "Access-Control-Allow-Methods":     "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers":     "Content-Type, Authorization, X-Admin-Token",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age":           "86400",
-            "Vary":                             "Origin"
-        };
-
-        // IP ban — fail-open to survive Upstash outages
+        // IP ban — fail-open (allow traffic if Redis is unreachable)
         try {
-            const ipStatus = await queryUpstash(["GET", `ip:${clientIp}`], env);
-            if (ipStatus === "BANNED") {
-                return jsonResponse({ error: "Access Denied: Your network address has been permanently restricted." }, 403, corsHeaders);
-            }
-        } catch (e) {
-            console.error("IP ban check error:", e.message);
-        }
+            const banned = await redis(['GET', `ip:${clientIp}`], env);
+            if (banned === 'BANNED') return json({ error: 'Access denied.' }, 403, cors);
+        } catch (_) {}
 
-        if (request.method === "OPTIONS") {
-            return new Response(null, { status: 204, headers: corsHeaders });
-        }
+        if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
-        // ── Route dispatch ──────────────────────────────────────────────────
+        // Route dispatch
+        if (path === '/ws') return handleWs(request, env);
 
-        if (pathname === "/ws") return handleWebSocket(request, env);
-        if (pathname === "/api/moderate-content"    && request.method === "POST") return handleModerateContent(request, env, corsHeaders);
-        if (pathname === "/api/get-messages"        && request.method === "GET")  return handleGetMessages(request, env, corsHeaders);
-        if (pathname === "/api/send-message"        && request.method === "POST") return handleSendMessage(request, env, corsHeaders, ctx);
-        if (pathname === "/api/register"            && request.method === "POST") return handleRegister(request, env, corsHeaders);
-        if (pathname === "/api/login"               && request.method === "POST") return handleLogin(request, env, corsHeaders);
-        if (pathname === "/api/session"             && request.method === "GET")  return handleSessionInfo(request, env, corsHeaders);
-        if (pathname === "/api/logout"              && request.method === "POST") return handleLogout(request, env, corsHeaders);
-        if (pathname === "/api/change-password"     && request.method === "POST") return handleChangePassword(request, env, corsHeaders);
-        if (pathname === "/api/admin/login"         && request.method === "POST") return handleAdminLogin(request, env, corsHeaders);
-        if (pathname === "/api/admin/session"       && request.method === "GET")  return handleAdminSessionInfo(request, env, corsHeaders);
-        if (pathname === "/api/admin/user-lookup"   && request.method === "GET")  return handleAdminUserLookup(request, env, corsHeaders);
-        if (pathname === "/api/admin/ban"           && request.method === "POST") return handleAdminBan(request, env, corsHeaders);
-        if (pathname === "/api/admin/delete-message"&& request.method === "POST") return handleAdminDeleteMessage(request, env, corsHeaders);
-        if (pathname === "/api/admin/purge-messages"&& request.method === "POST") return handleAdminPurgeMessages(request, env, corsHeaders);
-        if (pathname === "/api/admin/mute-user"     && request.method === "POST") return handleAdminMuteUser(request, env, corsHeaders);
-        if (pathname === "/api/admin/reset-password"&& request.method === "POST") return handleAdminResetPassword(request, env, corsHeaders);
-        if (pathname === "/api/admin/revoke-sessions"&& request.method === "POST") return handleAdminRevokeSessions(request, env, corsHeaders);
+        if (path === '/api/get-messages'          && request.method === 'GET')  return getMessages(request, env, cors);
+        if (path === '/api/send-message'          && request.method === 'POST') return sendMessage(request, env, cors, ctx);
+        if (path === '/api/register'              && request.method === 'POST') return register(request, env, cors);
+        if (path === '/api/login'                 && request.method === 'POST') return login(request, env, cors);
+        if (path === '/api/session'               && request.method === 'GET')  return sessionInfo(request, env, cors);
+        if (path === '/api/logout'                && request.method === 'POST') return logout(request, env, cors);
+        if (path === '/api/change-password'       && request.method === 'POST') return changePassword(request, env, cors);
+        if (path === '/api/admin/login'           && request.method === 'POST') return adminLogin(request, env, cors);
+        if (path === '/api/admin/session'         && request.method === 'GET')  return adminSession(request, env, cors);
+        if (path === '/api/admin/user-lookup'     && request.method === 'GET')  return adminUserLookup(request, env, cors);
+        if (path === '/api/admin/ban'             && request.method === 'POST') return adminBan(request, env, cors);
+        if (path === '/api/admin/delete-message'  && request.method === 'POST') return adminDeleteMessage(request, env, cors);
+        if (path === '/api/admin/purge-messages'  && request.method === 'POST') return adminPurgeMessages(request, env, cors);
+        if (path === '/api/admin/mute-user'       && request.method === 'POST') return adminMuteUser(request, env, cors);
+        if (path === '/api/admin/reset-password'  && request.method === 'POST') return adminResetPassword(request, env, cors);
+        if (path === '/api/admin/revoke-sessions' && request.method === 'POST') return adminRevokeSessions(request, env, cors);
 
-        return jsonResponse({ error: "Route not found." }, 404, corsHeaders);
+        return json({ error: 'Not found.' }, 404, cors);
     }
 };
 
-// ════════════════════════════════════════════════════════════
-// WebSocket
-// ════════════════════════════════════════════════════════════
+// ── WebSocket ────────────────────────────────────────────────────────────────
 
-async function handleWebSocket(request, env) {
-    if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("Expected WebSocket upgrade", { status: 426 });
+async function handleWs(request, env) {
+    if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('Expected WebSocket upgrade.', { status: 426 });
     }
-    if (!env.CHAT_ROOM) {
-        return new Response("WebSocket unavailable", { status: 503 });
-    }
-    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName("main"));
+    if (!env.CHAT_ROOM) return new Response('WebSocket unavailable.', { status: 503 });
+    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName('main'));
     return stub.fetch(request);
 }
 
 function broadcastNotify(env, ctx) {
     if (!env.CHAT_ROOM || !ctx) return;
-    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName("main"));
-    ctx.waitUntil(stub.fetch(new Request("https://internal/broadcast", {
-        method: "POST",
-        body:   JSON.stringify({ type: "notify" })
+    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName('main'));
+    ctx.waitUntil(stub.fetch(new Request('https://internal/broadcast', {
+        method: 'POST',
+        body:   JSON.stringify({ type: 'notify' })
     })));
 }
 
-// ════════════════════════════════════════════════════════════
-// IP geo
-// ════════════════════════════════════════════════════════════
+// ── IP geo ───────────────────────────────────────────────────────────────────
 
-function extractIpGeo(request) {
+function extractGeo(request) {
     const cf = request.cf || {};
     return {
-        country:  cf.country          || null,
-        city:     cf.city             || null,
-        region:   cf.region           || null,
-        postal:   cf.postalCode       || null,
-        lat:      cf.latitude         || null,
-        lon:      cf.longitude        || null,
-        asn:      cf.asn              || null,
-        org:      cf.asOrganization   || null,
-        tz:       cf.timezone         || null
+        country: cf.country        || null,
+        city:    cf.city           || null,
+        region:  cf.region         || null,
+        postal:  cf.postalCode     || null,
+        lat:     cf.latitude       || null,
+        lon:     cf.longitude      || null,
+        asn:     cf.asn            || null,
+        org:     cf.asOrganization || null,
+        tz:      cf.timezone       || null
     };
 }
 
-async function storeIpGeo(ip, geo, env) {
+async function storeGeo(ip, geo, env) {
     try {
-        await queryUpstash(["SET", `ip_geo:${ip}`,
+        await redis(['SET', `ip_geo:${ip}`,
             JSON.stringify({ ...geo, ip, ts: Date.now() }),
-            "EX", String(86400 * 90)   // 90-day TTL
+            'EX', String(86400 * 90)
         ], env);
     } catch (_) {}
 }
 
-// ════════════════════════════════════════════════════════════
-// Redis layer
-// ════════════════════════════════════════════════════════════
+// ── Redis ────────────────────────────────────────────────────────────────────
 
-async function queryUpstash(commandArray, env) {
-    const redisUrl   = env.UPSTASH_REDIS_REST_URL;
-    const redisToken = env.UPSTASH_REDIS_REST_TOKEN;
+async function redis(cmd, env) {
+    const url   = env.UPSTASH_REDIS_REST_URL;
+    const token = env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) throw new Error('Upstash bindings missing.');
 
-    if (!redisUrl || !redisToken) {
-        throw new Error("Upstash Redis bindings are missing or unconfigured.");
-    }
+    const isPipeline = Array.isArray(cmd[0]);
+    const endpoint   = url.replace(/\/$/, '') + (isPipeline ? '/pipeline' : '');
 
-    let endpoint = redisUrl.replace(/\/$/, "");
-    if (Array.isArray(commandArray[0])) {
-        endpoint += "/pipeline";
-    }
-
-    const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), 4000);
-
-    let response;
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    let resp;
     try {
-        response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${redisToken}`,
-                "Content-Type":  "application/json"
-            },
-            body: JSON.stringify(commandArray),
-            signal: controller.signal
+        resp = await fetch(endpoint, {
+            method:  'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body:    JSON.stringify(cmd),
+            signal:  ctrl.signal
         });
     } finally {
-        clearTimeout(abortTimer);
+        clearTimeout(timer);
     }
 
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Upstash REST gateway HTTP ${response.status}: ${errText}`);
-    }
-
-    const data = await response.json();
-
-    if (data.error) {
-        throw new Error(`Upstash database error: ${data.error}`);
-    }
+    if (!resp.ok) throw new Error(`Upstash HTTP ${resp.status}: ${await resp.text()}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(`Upstash error: ${data.error}`);
 
     if (Array.isArray(data)) {
         for (let i = 0; i < data.length; i++) {
-            if (data[i] && data[i].error) {
-                throw new Error(`Pipeline command [${i}] failed: ${data[i].error}`);
-            }
+            if (data[i]?.error) throw new Error(`Pipeline[${i}]: ${data[i].error}`);
         }
         return data;
     }
-
     return data.result;
 }
 
-function flatArrayToObject(arr) {
-    if (!arr || !Array.isArray(arr)) return {};
+function flatMap(arr) {
+    if (!Array.isArray(arr)) return {};
     const obj = {};
-    for (let i = 0; i < arr.length; i += 2) {
+    for (let i = 0; i < arr.length - 1; i += 2) {
         if (arr[i]) obj[arr[i]] = arr[i + 1];
     }
     return obj;
 }
 
-// ════════════════════════════════════════════════════════════
-// Cookie helpers
-// ════════════════════════════════════════════════════════════
+// ── Cookies ──────────────────────────────────────────────────────────────────
 
-function parseCookies(request) {
-    const raw = request.headers.get("Cookie") || "";
-    const out = {};
-    raw.split(";").forEach(part => {
-        const sep = part.indexOf("=");
-        if (sep === -1) return;
-        const name  = part.slice(0, sep).trim();
-        const value = part.slice(sep + 1).trim();
-        if (name) out[name] = decodeURIComponent(value);
-    });
-    return out;
+function getCookie(request, name) {
+    const raw = request.headers.get('Cookie') || '';
+    for (const part of raw.split(';')) {
+        const sep = part.indexOf('=');
+        if (sep === -1) continue;
+        if (part.slice(0, sep).trim() === name) {
+            return decodeURIComponent(part.slice(sep + 1).trim());
+        }
+    }
+    return null;
 }
 
-function getCookieValue(request, name) {
-    return parseCookies(request)[name] || null;
-}
-
-function buildCookie(request, name, value, options = {}) {
-    const isHttps = new URL(request.url).protocol === "https:";
-    const parts   = [
+function setCookieHeader(request, name, value, maxAge) {
+    const https = new URL(request.url).protocol === 'https:';
+    const parts = [
         `${name}=${encodeURIComponent(value)}`,
-        "Path=/",
-        `Max-Age=${options.maxAge || 0}`,
-        isHttps ? "SameSite=None" : "SameSite=Lax"
+        'Path=/',
+        `Max-Age=${maxAge}`,
+        https ? 'SameSite=None' : 'SameSite=Lax',
+        'HttpOnly'
     ];
-    if (isHttps)                    parts.push("Secure");
-    if (options.httpOnly !== false) parts.push("HttpOnly");
-    return parts.join("; ");
+    if (https) parts.push('Secure');
+    return parts.join('; ');
 }
 
-function clearCookie(request, name, options = {}) {
-    const isHttps = new URL(request.url).protocol === "https:";
-    const parts   = [
+function clearCookieHeader(request, name) {
+    const https = new URL(request.url).protocol === 'https:';
+    const parts = [
         `${name}=`,
-        "Path=/",
-        "Max-Age=0",
-        "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-        isHttps ? "SameSite=None" : "SameSite=Lax"
+        'Path=/',
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+        https ? 'SameSite=None' : 'SameSite=Lax',
+        'HttpOnly'
     ];
-    if (isHttps)                    parts.push("Secure");
-    if (options.httpOnly !== false) parts.push("HttpOnly");
-    return parts.join("; ");
+    if (https) parts.push('Secure');
+    return parts.join('; ');
 }
 
-// ════════════════════════════════════════════════════════════
-// Response helpers
-// ════════════════════════════════════════════════════════════
+// ── Response helpers ─────────────────────────────────────────────────────────
 
-function jsonResponse(body, status, corsHeaders) {
+const SEC_HEADERS = {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options':        'DENY',
+    'Referrer-Policy':        'no-referrer'
+};
+
+function json(body, status, corsHeaders) {
     return new Response(JSON.stringify(body), {
         status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
+        headers: { ...corsHeaders, ...SEC_HEADERS, 'Content-Type': 'application/json' }
     });
 }
 
-function createJsonHeaders(corsHeaders) {
-    return new Headers({ ...corsHeaders, "Content-Type": "application/json" });
+function jsonWithCookies(body, status, corsHeaders, cookies) {
+    const headers = new Headers({ ...corsHeaders, ...SEC_HEADERS, 'Content-Type': 'application/json' });
+    for (const c of cookies) headers.append('Set-Cookie', c);
+    return new Response(JSON.stringify(body), { status, headers });
 }
 
-// ════════════════════════════════════════════════════════════
-// String / validation helpers
-// ════════════════════════════════════════════════════════════
-
-function sanitizeUsername(username) {
-    return (username || "").trim().toLowerCase();
+function buildCorsHeaders(origin) {
+    return {
+        'Access-Control-Allow-Origin':      origin || ALLOWED_ORIGINS[0],
+        'Access-Control-Allow-Methods':     'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers':     'Content-Type, Authorization, X-Admin-Token',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Max-Age':           '86400',
+        'Vary':                             'Origin'
+    };
 }
 
-function isReservedUsername(username) {
-    const n = sanitizeUsername(username);
-    return n === "admin" || n.startsWith("dev_") || n.startsWith("supporter_");
+// ── String helpers ───────────────────────────────────────────────────────────
+
+function normalize(username) {
+    return (username || '').trim().toLowerCase();
+}
+
+function isReserved(username) {
+    const n = normalize(username);
+    return n === 'admin' || n.startsWith('dev_') || n.startsWith('supporter_');
+}
+
+function mask(username) {
+    if (!username || username.length <= 6) return username;
+    return username.slice(0, 5) + '***' + username.slice(-2);
 }
 
 function bytesToHex(bytes) {
-    return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function hexToBytes(hex) {
-    const s   = hex || "";
-    const out = new Uint8Array(s.length / 2);
-    for (let i = 0; i < s.length; i += 2) out[i / 2] = parseInt(s.slice(i, i + 2), 16);
+    const out = new Uint8Array((hex || '').length / 2);
+    for (let i = 0; i < hex.length; i += 2) out[i / 2] = parseInt(hex.slice(i, i + 2), 16);
     return out;
 }
 
-// ════════════════════════════════════════════════════════════
-// Password hashing
-// ════════════════════════════════════════════════════════════
+// ── Password hashing ─────────────────────────────────────────────────────────
 
-async function legacyHashPassword(username, password, env) {
-    const salt = env.PASSWORD_SALT;
-    if (!salt) throw new Error("PASSWORD_SALT binding is not defined.");
-    const data = new TextEncoder().encode(`${username.toLowerCase()}:${password}:${salt}`);
-    const buf  = await crypto.subtle.digest("SHA-256", data);
-    return bytesToHex(new Uint8Array(buf));
+async function hashLegacy(username, password, env) {
+    const data = new TextEncoder().encode(`${username}:${password}:${env.PASSWORD_SALT}`);
+    return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', data)));
 }
 
 async function hashPassword(username, password, env) {
     const pepper = env.PASSWORD_SALT;
-    if (!pepper) throw new Error("PASSWORD_SALT binding is not defined.");
+    if (!pepper) throw new Error('PASSWORD_SALT not configured.');
 
-    const saltBytes = new Uint8Array(16);
-    crypto.getRandomValues(saltBytes);
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
 
-    const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(`${username.toLowerCase()}:${password}:${pepper}`),
-        "PBKDF2",
-        false,
-        ["deriveBits"]
+    const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(`${username}:${password}:${pepper}`),
+        'PBKDF2', false, ['deriveBits']
     );
-
-    const derivedBits = await crypto.subtle.deriveBits(
-        { name: "PBKDF2", hash: "SHA-256", salt: saltBytes, iterations: PBKDF2_ITERATIONS },
-        keyMaterial,
-        PBKDF2_KEY_BYTES * 8
+    const bits = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITERATIONS },
+        key, PBKDF2_KEY_BYTES * 8
     );
-
-    return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToHex(saltBytes)}$${bytesToHex(new Uint8Array(derivedBits))}`;
+    return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToHex(salt)}$${bytesToHex(new Uint8Array(bits))}`;
 }
 
-async function verifyPassword(username, password, storedHash, env) {
-    if (!storedHash) return { valid: false, needsUpgrade: false, isBannedHash: false };
-    if (storedHash === "BANNED") return { valid: false, needsUpgrade: false, isBannedHash: true };
+async function verifyPassword(username, password, stored, env) {
+    if (!stored) return { valid: false, upgrade: false, banned: false };
+    if (stored === 'BANNED') return { valid: false, upgrade: false, banned: true };
 
-    // Legacy SHA-256 hash — verify and signal upgrade to PBKDF2
-    if (!storedHash.startsWith("pbkdf2$")) {
-        const legacyHash = await legacyHashPassword(username, password, env);
-        const match      = legacyHash === storedHash;
-        return { valid: match, needsUpgrade: match, isBannedHash: false };
+    if (!stored.startsWith('pbkdf2$')) {
+        const match = (await hashLegacy(username, password, env)) === stored;
+        return { valid: match, upgrade: match, banned: false };
     }
 
-    const parts = storedHash.split("$");
-    if (parts.length !== 4) return { valid: false, needsUpgrade: false, isBannedHash: false };
+    const [, iter, saltHex, expectedHex] = stored.split('$');
+    const pepper = env.PASSWORD_SALT;
+    if (!pepper) throw new Error('PASSWORD_SALT not configured.');
 
-    const iterations  = parseInt(parts[1], 10);
-    const saltBytes   = hexToBytes(parts[2]);
-    const expectedHex = parts[3];
-    const pepper      = env.PASSWORD_SALT;
-    if (!pepper) throw new Error("PASSWORD_SALT binding is not defined.");
-
-    const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(`${username.toLowerCase()}:${password}:${pepper}`),
-        "PBKDF2",
-        false,
-        ["deriveBits"]
+    const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(`${username}:${password}:${pepper}`),
+        'PBKDF2', false, ['deriveBits']
     );
-
-    const derivedBits = await crypto.subtle.deriveBits(
-        { name: "PBKDF2", hash: "SHA-256", salt: saltBytes, iterations },
-        keyMaterial,
-        expectedHex.length * 4
+    const bits = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', hash: 'SHA-256', salt: hexToBytes(saltHex), iterations: parseInt(iter, 10) },
+        key, expectedHex.length * 4
     );
-
     return {
-        valid:        bytesToHex(new Uint8Array(derivedBits)) === expectedHex,
-        needsUpgrade: false,
-        isBannedHash: false
+        valid:   bytesToHex(new Uint8Array(bits)) === expectedHex,
+        upgrade: false,
+        banned:  false
     };
 }
 
-// ════════════════════════════════════════════════════════════
-// Session management
-// ════════════════════════════════════════════════════════════
+// ── Sessions ─────────────────────────────────────────────────────────────────
 
-async function createUserSession(username, env) {
-    const normalized = sanitizeUsername(username);
-    const token      = crypto.randomUUID();
-    const setKey     = `sessions:user:${normalized}`;
-    await queryUpstash([
-        ["SET",    `session:${token}`, normalized, "EX", String(USER_SESSION_TTL_SECONDS)],
-        ["SADD",   setKey, token],
-        ["EXPIRE", setKey, String(USER_SESSION_TTL_SECONDS)]
+async function createSession(username, env) {
+    const token  = crypto.randomUUID();
+    const setKey = `sessions:user:${username}`;
+    await redis([
+        ['SET',    `session:${token}`, username, 'EX', String(SESSION_TTL)],
+        ['SADD',   setKey, token],
+        ['EXPIRE', setKey, String(SESSION_TTL)]
     ], env);
     return token;
 }
 
 async function createAdminSession(env) {
     const token = crypto.randomUUID();
-    await queryUpstash([
-        ["SET",    `session:admin:${token}`, "1", "EX", String(ADMIN_SESSION_TTL_SECONDS)],
-        ["SADD",   "sessions:admin", token],
-        ["EXPIRE", "sessions:admin", String(ADMIN_SESSION_TTL_SECONDS)]
+    await redis([
+        ['SET',    `session:admin:${token}`, '1', 'EX', String(ADMIN_SESSION_TTL)],
+        ['SADD',   'sessions:admin', token],
+        ['EXPIRE', 'sessions:admin', String(ADMIN_SESSION_TTL)]
     ], env);
     return token;
 }
 
-async function revokeUserSessionToken(username, token, env) {
-    const normalized = sanitizeUsername(username);
-    await queryUpstash([
-        ["DEL",  `session:${token}`],
-        ["SREM", `sessions:user:${normalized}`, token]
+async function resolveSession(request, env, fallback) {
+    const token = fallback || getCookie(request, SESSION_COOKIE);
+    if (!token) return null;
+    const username = await redis(['GET', `session:${token}`], env);
+    return username ? { token, username } : null;
+}
+
+async function resolveAdminSession(request, env, fallback) {
+    const token = fallback
+        || request.headers.get('X-Admin-Token')
+        || getCookie(request, ADMIN_COOKIE);
+    if (!token) return null;
+    const valid = await redis(['GET', `session:admin:${token}`], env);
+    return valid ? { token } : null;
+}
+
+async function revokeSession(username, token, env) {
+    await redis([
+        ['DEL',  `session:${token}`],
+        ['SREM', `sessions:user:${username}`, token]
     ], env);
 }
 
-async function revokeUserSessions(username, env) {
-    const normalized = sanitizeUsername(username);
-    const setKey     = `sessions:user:${normalized}`;
-    const tokens     = await queryUpstash(["SMEMBERS", setKey], env);
-    const list       = Array.isArray(tokens) ? tokens : [];
-
-    if (list.length === 0) {
-        await queryUpstash(["DEL", setKey], env);
-        return 0;
-    }
-
-    const cmds = list.map(t => ["DEL", `session:${t}`]);
-    cmds.push(["DEL", setKey]);
-    await queryUpstash(cmds, env);
+async function revokeAllSessions(username, env) {
+    const setKey = `sessions:user:${username}`;
+    const tokens = await redis(['SMEMBERS', setKey], env);
+    const list   = Array.isArray(tokens) ? tokens : [];
+    if (list.length === 0) { await redis(['DEL', setKey], env); return 0; }
+    const cmds = list.map(t => ['DEL', `session:${t}`]);
+    cmds.push(['DEL', setKey]);
+    await redis(cmds, env);
     return list.length;
 }
 
-async function revokeAdminSessionToken(token, env) {
-    await queryUpstash([
-        ["DEL",  `session:admin:${token}`],
-        ["SREM", "sessions:admin", token]
-    ], env);
-}
+// ── Content moderation ───────────────────────────────────────────────────────
 
-async function getUserSession(request, env, fallbackToken = null) {
-    const token = fallbackToken || getCookieValue(request, USER_SESSION_COOKIE);
-    if (!token) return null;
-    const username = await queryUpstash(["GET", `session:${token}`], env);
-    if (!username) return null;
-    return { token, username };
-}
-
-async function getAdminSession(request, env, fallbackToken = null) {
-    const token = fallbackToken
-        || request.headers.get("X-Admin-Token")
-        || getCookieValue(request, ADMIN_SESSION_COOKIE);
-    if (!token) return null;
-    const valid = await queryUpstash(["GET", `session:admin:${token}`], env);
-    if (!valid) return null;
-    return { token };
-}
-
-async function verifyAdminSession(request, env) {
-    return !!(await getAdminSession(request, env));
-}
-
-// ════════════════════════════════════════════════════════════
-// Safety evaluation
-// ════════════════════════════════════════════════════════════
-
-function evaluateSafetyMultiTier(openaiData) {
-    if (!openaiData || !openaiData.results || openaiData.results.length === 0) {
-        return { flagged: false };
-    }
-
-    const result     = openaiData.results[0];
-    const categories = result.categories;
-    const scores     = result.category_scores;
-
-    // Tier 1 — Zero-tolerance: sexual content
-    if (categories.sexual || categories["sexual/minors"]) {
-        return { flagged: true, reason: "SEXUAL" };
-    }
-
-    // Tier 2 — Low threshold (0.20): violence and direct threats
-    if (scores.violence > 0.20 || scores["harassment/threatening"] > 0.20 || scores["hate/threatening"] > 0.20) {
-        return { flagged: true, reason: "VIOLENCE" };
-    }
-
-    // Tier 3 — Category match: self-harm and graphic violence
-    if (
-        categories["self-harm"] ||
-        categories["self-harm/intent"] ||
-        categories["self-harm/instructions"] ||
-        categories["violence/graphic"]
-    ) {
-        return { flagged: true, reason: "SELF_HARM_OR_GRAPHIC" };
-    }
-
-    // Tier 4 — High threshold (0.85): hate/harassment to preserve political speech
-    if (scores.hate > 0.85 || scores.harassment > 0.85) {
-        return { flagged: true, reason: "HATE_HARASSMENT" };
-    }
-
+function evalModeration(data) {
+    if (!data?.results?.[0]) return { flagged: false };
+    const { categories: c, category_scores: s } = data.results[0];
+    if (c.sexual || c['sexual/minors'])                                           return { flagged: true, reason: 'SEXUAL' };
+    if (s.violence > 0.20 || s['harassment/threatening'] > 0.20 || s['hate/threatening'] > 0.20)
+                                                                                  return { flagged: true, reason: 'VIOLENCE' };
+    if (c['self-harm'] || c['self-harm/intent'] || c['self-harm/instructions'] || c['violence/graphic'])
+                                                                                  return { flagged: true, reason: 'SELF_HARM' };
+    if (s.hate > 0.85 || s.harassment > 0.85)                                    return { flagged: true, reason: 'HATE' };
     return { flagged: false };
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/moderate-content
-// ════════════════════════════════════════════════════════════
+async function moderate(text, env) {
+    const key = env.OPENAI_API_KEY;
+    if (!key) return { flagged: false };
+    const resp = await fetch('https://api.openai.com/v1/moderations', {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ input: text, model: 'omni-moderation-latest' })
+    });
+    if (!resp.ok) throw new Error(`OpenAI HTTP ${resp.status}`);
+    return evalModeration(await resp.json());
+}
 
-async function handleModerateContent(request, env, corsHeaders) {
+// ── Handler: GET /api/get-messages ───────────────────────────────────────────
+
+async function getMessages(request, env, cors) {
     try {
-        const body = await request.json();
-        if (body.text === undefined || body.text === null) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameter: text is required." }, 400, corsHeaders);
-        }
-
-        const openaiKey = env.OPENAI_API_KEY;
-        if (!openaiKey) throw new Error("OPENAI_API_KEY binding is missing.");
-
-        const modResponse = await fetch("https://api.openai.com/v1/moderations", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ input: body.text, model: "omni-moderation-latest" })
-        });
-
-        if (!modResponse.ok) throw new Error(`OpenAI moderation HTTP ${modResponse.status}`);
-
-        return jsonResponse(evaluateSafetyMultiTier(await modResponse.json()), 200, corsHeaders);
-
+        const msgs = await redis(['LRANGE', 'chat:messages', '0', '49'], env);
+        return json(msgs || [], 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Moderation gateway failure: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: GET /api/get-messages
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/send-message ─────────────────────────────────────────
 
-async function handleGetMessages(request, env, corsHeaders) {
+async function sendMessage(request, env, cors, ctx) {
     try {
-        const messages = await queryUpstash(["LRANGE", "chat:messages", "0", "49"], env);
-        return jsonResponse(messages || [], 200, corsHeaders);
-    } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Message retrieval failed: ${err.message}` }, 500, corsHeaders);
-    }
-}
+        const body      = await request.json();
+        const text      = (body.text || '').trim();
+        const token     = body.sessionToken;
+        const deviceId  = body.ink_device_id;
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/send-message
-// ════════════════════════════════════════════════════════════
+        if (!text)  return json({ status: 'ERROR', message: 'text is required.' }, 400, cors);
+        if (!token) return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
 
-async function handleSendMessage(request, env, corsHeaders, ctx) {
-    try {
-        const body          = await request.json();
-        const text          = (body.text || "").trim();
-        const sessionToken  = body.sessionToken;
-        const ink_device_id = body.ink_device_id || body.fingerprint;
-
-        if (!text) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameter: text is required." }, 400, corsHeaders);
-        }
-
-        // ── 1. Session resolution (single pipeline) ──────────────────────────
-        if (!sessionToken) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired session token." }, 401, corsHeaders);
-        }
-
-        const authChk = await queryUpstash([
-            ["GET", `session:admin:${sessionToken}`],
-            ["GET", `session:${sessionToken}`]
+        // Resolve session (user or admin)
+        const authChk = await redis([
+            ['GET', `session:admin:${token}`],
+            ['GET', `session:${token}`]
         ], env);
 
-        let username = null;
-        let isAdmin  = false;
+        let username = null, isAdmin = false;
+        if (authChk[0].result)      { username = 'Admin'; isAdmin = true; }
+        else if (authChk[1].result) { username = authChk[1].result; }
+        else return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
 
-        if (authChk[0].result) {
-            username = "Admin";
-            isAdmin  = true;
-        } else if (authChk[1].result) {
-            username = authChk[1].result;
-        } else {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired session token." }, 401, corsHeaders);
-        }
-
-        // ── 2. Policy checks (non-admin only) ────────────────────────────────
+        // Policy checks (non-admin only)
         if (!isAdmin) {
-            if (!ink_device_id) {
-                return jsonResponse({ status: "ERROR", message: "Missing parameter: ink_device_id is required." }, 400, corsHeaders);
+            if (!deviceId) return json({ status: 'ERROR', message: 'ink_device_id required.' }, 400, cors);
+            if (text.length > MESSAGE_MAX_LENGTH) {
+                return json({ status: 'ERROR', message: `Max ${MESSAGE_MAX_LENGTH} characters.` }, 413, cors);
             }
 
-            if (text.length > 500) {
-                return jsonResponse({ status: "ERROR", message: "Payload too large: Messages are limited to 500 characters." }, 413, corsHeaders);
-            }
-
-            // Single pipeline: ban/mute + rate-limit + cooldown + duplicate + device binding
-            const rateKey = `rate:send-message:${sessionToken}`;
-            const chk = await queryUpstash([
-                ["GET",    `device:status:${ink_device_id}`],
-                ["GET",    `account:status:${username}`],
-                ["GET",    `mute:${username}`],
-                ["INCR",   rateKey],
-                ["EXPIRE", rateKey, "5"],
-                ["SET",    "chat:cooldown", "1", "NX", "EX", "1"],
-                ["LINDEX", "chat:messages", "0"],
-                ["HMGET",  `user:${username}`, "linked_devices"]
+            const rateKey = `rate:send:${token}`;
+            const chk = await redis([
+                ['GET',    `device:status:${deviceId}`],
+                ['GET',    `account:status:${username}`],
+                ['GET',    `mute:${username}`],
+                ['INCR',   rateKey],
+                ['EXPIRE', rateKey, '5'],
+                ['SET',    'chat:cooldown', '1', 'NX', 'EX', '1'],
+                ['LINDEX', 'chat:messages', '0'],
+                ['HMGET',  `user:${username}`, 'linked_devices']
             ], env);
 
-            const deviceStatus   = chk[0].result;
-            const accountStatus  = chk[1].result;
-            const isMuted        = chk[2].result;
-            const currentCount   = chk[3].result;
-            const cooldownSet    = chk[5].result;
-            const lastMessageRaw = chk[6].result;
-            const deviceFields   = chk[7].result;
+            if (chk[0].result === 'BANNED')  return json({ status: 'ERROR', message: 'This device is banned.' }, 403, cors);
+            if (chk[1].result === 'BANNED')  return json({ status: 'ERROR', message: 'This account is banned.' }, 403, cors);
+            if (chk[2].result)               return json({ status: 'ERROR', message: 'You are muted.' }, 403, cors);
+            if (chk[3].result > 3)           return json({ status: 'ERROR', message: 'Rate limit: 3 messages per 5s.' }, 429, cors);
+            if (chk[5].result === null)      return json({ status: 'ERROR', message: 'Slow down.' }, 429, cors);
 
-            if (deviceStatus === "BANNED")  return jsonResponse({ status: "ERROR", message: "This hardware node is banned permanently." }, 403, corsHeaders);
-            if (accountStatus === "BANNED") return jsonResponse({ status: "ERROR", message: "Access Denied: Your account has been permanently restricted." }, 403, corsHeaders);
-            if (isMuted)                    return jsonResponse({ status: "ERROR", message: "Access Denied: You have been temporarily muted by an administrator." }, 403, corsHeaders);
-
-            if (currentCount > 3)    return jsonResponse({ status: "ERROR", message: "Rate limit exceeded: 3 messages per 5 seconds." }, 429, corsHeaders);
-            if (cooldownSet === null) return jsonResponse({ status: "ERROR", message: "Slow down! Chat is moving too fast." }, 429, corsHeaders);
-
-            if (lastMessageRaw) {
+            if (chk[6].result) {
                 try {
-                    const lastMsg = JSON.parse(lastMessageRaw);
-                    if (lastMsg && lastMsg.text === text) {
-                        return jsonResponse({ status: "ERROR", message: "Duplicate message blocked." }, 409, corsHeaders);
-                    }
+                    const last = JSON.parse(chk[6].result);
+                    if (last?.text === text) return json({ status: 'ERROR', message: 'Duplicate blocked.' }, 409, cors);
                 } catch (_) {}
             }
 
             let linkedDevices = [];
-            try { linkedDevices = JSON.parse(deviceFields[0] || "[]"); } catch (_) {}
-            if (linkedDevices.length > 0 && linkedDevices.indexOf(ink_device_id) === -1) {
-                return jsonResponse({ status: "ERROR", message: "Unauthorized: Session is not valid for this device." }, 403, corsHeaders);
+            try { linkedDevices = JSON.parse(chk[7].result[0] || '[]'); } catch (_) {}
+            if (linkedDevices.length > 0 && !linkedDevices.includes(deviceId)) {
+                return json({ status: 'ERROR', message: 'Session not valid for this device.' }, 403, cors);
             }
         }
 
-        // ── 3. Build sanitized message payload ───────────────────────────────
-        let maskedUserId = username;
-        if (!isAdmin && username.length > 6) {
-            maskedUserId = username.substring(0, 5) + "***" + username.substring(username.length - 2);
-        }
-
-        const messageObject = {
+        // Build message object
+        const msg = {
             text,
             timestamp: Date.now(),
-            userId:    maskedUserId,
-            role:      isAdmin ? "admin" : "user",
-            layout:    "Kindle Paperwhite Pool"
+            userId:    isAdmin ? 'Admin' : mask(username),
+            role:      isAdmin ? 'admin' : 'user'
         };
-
         if (body.replyTo) {
-            messageObject.replyTo = {
+            msg.replyTo = {
                 userId:    body.replyTo.userId,
                 timestamp: body.replyTo.timestamp,
                 text:      body.replyTo.text
             };
         }
+        const msgStr = JSON.stringify(msg);
 
-        const messageStr = JSON.stringify(messageObject);
-
-        // ── 4. Commit immediately ────────────────────────────────────────────
-        await queryUpstash([
-            ["LPUSH", "chat:messages", messageStr],
-            ["LTRIM", "chat:messages", "0", "99"]
+        // Store and broadcast
+        await redis([
+            ['LPUSH', 'chat:messages', msgStr],
+            ['LTRIM', 'chat:messages', '0', String(MESSAGE_LIMIT - 1)]
         ], env);
-
-        // ── 5. Notify WebSocket clients ──────────────────────────────────────
         broadcastNotify(env, ctx);
 
-        // ── 7. Respond immediately, then moderate in background ───────────────
-        // Moderation is async — if flagged the message is deleted after the fact.
-        if (!isAdmin && ctx) {
-            const openaiKey = env.OPENAI_API_KEY;
-            if (openaiKey) {
-                ctx.waitUntil((async () => {
-                    try {
-                        const modResponse = await fetch("https://api.openai.com/v1/moderations", {
-                            method:  "POST",
-                            headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-                            body:    JSON.stringify({ input: text, model: "omni-moderation-latest" })
-                        });
-                        if (modResponse.ok) {
-                            const evalResult = evaluateSafetyMultiTier(await modResponse.json());
-                            if (evalResult.flagged) {
-                                await queryUpstash(["LREM", "chat:messages", "1", messageStr], env);
-                            }
-                        }
-                    } catch (_) {}
-                })());
-            }
+        // Background moderation — remove message after the fact if flagged
+        if (!isAdmin && ctx && env.OPENAI_API_KEY) {
+            ctx.waitUntil((async () => {
+                try {
+                    const result = await moderate(text, env);
+                    if (result.flagged) await redis(['LREM', 'chat:messages', '1', msgStr], env);
+                } catch (_) {}
+            })());
         }
 
-        return jsonResponse({ status: "SUCCESS" }, 200, corsHeaders);
+        return json({ status: 'SUCCESS' }, 200, cors);
 
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Message transmission failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/register
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/register ──────────────────────────────────────────────
 
-async function handleRegister(request, env, corsHeaders) {
+async function register(request, env, cors) {
     try {
-        const body               = await request.json();
-        const username           = body.username;
-        const password           = body.password;
-        const normalizedUsername = sanitizeUsername(username);
+        const clientIp  = request.cf?.connectingIp || '127.0.0.1';
+        const rateKey   = `rate:register:${clientIp}`;
+        const attempts  = await redis(['INCR', rateKey], env);
+        if (attempts === 1) await redis(['EXPIRE', rateKey, '3600'], env);
+        if (attempts > 5)   return json({ status: 'ERROR', message: 'Too many registrations from this address. Try again in 1 hour.' }, 429, cors);
 
-        if (!username || !password) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameters: username and password are required." }, 400, corsHeaders);
+        const body     = await request.json();
+        const username = (body.username || '').trim();
+        const password = body.password;
+        const norm     = normalize(username);
+
+        if (!username || !password) return json({ status: 'ERROR', message: 'username and password required.' }, 400, cors);
+        if (password.length < 4)    return json({ status: 'ERROR', message: 'Password must be at least 4 characters.' }, 400, cors);
+        if (isReserved(username))   return json({ status: 'ERROR', message: 'That username is reserved.' }, 400, cors);
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            return json({ status: 'ERROR', message: 'Username must be alphanumeric only.' }, 400, cors);
         }
 
-        if (isReservedUsername(username)) {
-            return jsonResponse({ status: "ERROR", message: "That username is reserved and cannot be registered." }, 400, corsHeaders);
-        }
+        // Moderate username
+        try {
+            const result = await moderate(username, env);
+            if (result.flagged) return json({ status: 'ERROR', message: 'Username violates content policy.' }, 400, cors);
+        } catch (_) {}
 
-        const openaiKey = env.OPENAI_API_KEY;
-        if (!openaiKey) throw new Error("OPENAI_API_KEY binding is missing.");
+        const userKey = `user:${norm}`;
+        const existing = flatMap(await redis(['HGETALL', userKey], env));
+        if (existing.password_hash) return json({ status: 'ERROR', message: 'Username is taken.' }, 400, cors);
 
-        // Username content moderation
-        const usernameModResponse = await fetch("https://api.openai.com/v1/moderations", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ input: username, model: "omni-moderation-latest" })
-        });
+        const clientIp  = request.cf?.connectingIp || '127.0.0.1';
+        const geo       = extractGeo(request);
+        const deviceId  = crypto.randomUUID();
+        const fp        = body.hardware_fingerprint || null;
+        const hash      = await hashPassword(norm, password, env);
+        const token     = await createSession(norm, env);
 
-        if (!usernameModResponse.ok) throw new Error(`OpenAI moderation HTTP ${usernameModResponse.status}`);
-
-        const usernameEval = evaluateSafetyMultiTier(await usernameModResponse.json());
-        if (usernameEval.flagged) {
-            return jsonResponse({ status: "ERROR", message: "Registration rejected: Username violates our community content policy." }, 400, corsHeaders);
-        }
-
-        // Check if username is taken
-        const userKey     = `user:${normalizedUsername}`;
-        const existingRaw = await queryUpstash(["HGETALL", userKey], env);
-        const existing    = flatArrayToObject(existingRaw);
-        if (existing.password_hash) {
-            return jsonResponse({ status: "ERROR", message: "Username is already taken." }, 400, corsHeaders);
-        }
-
-        // Generate ink_device_id server-side — client stores the returned value in localStorage
-        const inkDeviceId = crypto.randomUUID();
-
-        const passwordHash = await hashPassword(normalizedUsername, password, env);
-        const clientIp     = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
-        const sessionToken = await createUserSession(normalizedUsername, env);
-        const fpSubmitted  = body.hardware_fingerprint || null;
-        const geo          = extractIpGeo(request);
-
-        await queryUpstash(["HSET", userKey,
-            "password_hash",       passwordHash,
-            "linked_devices",      JSON.stringify([inkDeviceId]),
-            "linked_ips",          JSON.stringify([clientIp]),
-            "linked_fingerprints", JSON.stringify(fpSubmitted ? [fpSubmitted] : [])
+        await redis(['HSET', userKey,
+            'password_hash',       hash,
+            'linked_devices',      JSON.stringify([deviceId]),
+            'linked_ips',          JSON.stringify([clientIp]),
+            'linked_fingerprints', JSON.stringify(fp ? [fp] : [])
         ], env);
-        storeIpGeo(clientIp, geo, env);
+        storeGeo(clientIp, geo, env);
 
-        const headers = createJsonHeaders(corsHeaders);
-        headers.append("Set-Cookie", buildCookie(request, USER_SESSION_COOKIE, sessionToken, { maxAge: USER_SESSION_TTL_SECONDS }));
-
-        return new Response(JSON.stringify({
-            status:        "SUCCESS",
-            username:      normalizedUsername,
-            token:         sessionToken,
-            ink_device_id: inkDeviceId
-        }), { status: 200, headers });
-
+        return jsonWithCookies(
+            { status: 'SUCCESS', username: norm, token, ink_device_id: deviceId },
+            200, cors,
+            [setCookieHeader(request, SESSION_COOKIE, token, SESSION_TTL)]
+        );
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Registration failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/login
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/login ─────────────────────────────────────────────────
 
-async function handleLogin(request, env, corsHeaders) {
+async function login(request, env, cors) {
     try {
-        const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
-        const rateKey  = `rate:login:ip:${clientIp}`;
-        const attempts = await queryUpstash(["INCR", rateKey], env);
-        if (attempts === 1) await queryUpstash(["EXPIRE", rateKey, "300"], env);
-        if (attempts > 10) {
-            return jsonResponse({ status: "ERROR", message: "Too many login attempts. Please wait 5 minutes." }, 429, corsHeaders);
-        }
+        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const rateKey  = `rate:login:${clientIp}`;
+        const attempts = await redis(['INCR', rateKey], env);
+        if (attempts === 1) await redis(['EXPIRE', rateKey, '300'], env);
+        if (attempts > 10)  return json({ status: 'ERROR', message: 'Too many attempts. Wait 5 minutes.' }, 429, cors);
 
-        const body               = await request.json();
-        const username           = body.username;
-        const password           = body.password;
-        const normalizedUsername = sanitizeUsername(username);
-        const deviceId           = body.ink_device_id || body.fingerprint;
+        const body     = await request.json();
+        const username = (body.username || '').trim();
+        const password = body.password;
+        const norm     = normalize(username);
+        const deviceId = body.ink_device_id;
+        const fp       = body.hardware_fingerprint || null;
 
-        if (!username || !password) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameters: username and password are required." }, 400, corsHeaders);
-        }
+        if (!username || !password) return json({ status: 'ERROR', message: 'username and password required.' }, 400, cors);
+        if (!deviceId)              return json({ status: 'ERROR', message: 'ink_device_id required.' }, 400, cors);
 
-        if (!deviceId) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameter: ink_device_id is required." }, 400, corsHeaders);
-        }
+        // Device ban
+        const devStatus = await redis(['GET', `device:status:${deviceId}`], env);
+        if (devStatus === 'BANNED') return json({ status: 'BANNED', message: 'This device is banned.' }, 403, cors);
 
-        // Device ban check
-        const deviceStatus = await queryUpstash(["GET", `device:status:${deviceId}`], env);
-        if (deviceStatus === "BANNED") {
-            return jsonResponse({ status: "BANNED", message: "This hardware node has been permanently restricted." }, 403, corsHeaders);
-        }
+        const userKey  = `user:${norm}`;
+        const userData = flatMap(await redis(['HGETALL', userKey], env));
+        if (!userData.password_hash) return json({ status: 'ERROR', message: 'Invalid username or password.' }, 400, cors);
 
-        const userKey  = `user:${normalizedUsername}`;
-        const userRaw  = await queryUpstash(["HGETALL", userKey], env);
-        const userData = flatArrayToObject(userRaw);
-
-        if (!userData.password_hash) {
-            return jsonResponse({ status: "ERROR", message: "Invalid username or password." }, 400, corsHeaders);
-        }
-
-        // Parallel: account status + password verification
-        const [accountStatus, passwordCheck] = await Promise.all([
-            queryUpstash(["GET", `account:status:${normalizedUsername}`], env),
-            verifyPassword(normalizedUsername, password, userData.password_hash, env)
+        const [accountStatus, pwCheck] = await Promise.all([
+            redis(['GET', `account:status:${norm}`], env),
+            verifyPassword(norm, password, userData.password_hash, env)
         ]);
 
-        if (accountStatus === "BANNED" || passwordCheck.isBannedHash) {
-            return jsonResponse({ status: "BANNED", message: "This account has been permanently restricted." }, 403, corsHeaders);
+        if (accountStatus === 'BANNED' || pwCheck.banned) {
+            return json({ status: 'BANNED', message: 'This account is banned.' }, 403, cors);
         }
+        if (!pwCheck.valid) return json({ status: 'ERROR', message: 'Invalid username or password.' }, 400, cors);
 
-        if (!passwordCheck.valid) {
-            return jsonResponse({ status: "ERROR", message: "Invalid username or password." }, 400, corsHeaders);
-        }
-
-        // Device binding enforcement
-        const fpSubmitted = body.hardware_fingerprint || null;
+        // Device binding — allow fingerprint fallback when UUID not recognized
         let linkedDevices = [];
-        try { linkedDevices = JSON.parse(userData.linked_devices || "[]"); } catch (_) {}
+        try { linkedDevices = JSON.parse(userData.linked_devices || '[]'); } catch (_) {}
 
         if (linkedDevices.length === 0) {
             linkedDevices.push(deviceId);
-        } else if (linkedDevices.indexOf(deviceId) === -1) {
-            // UUID not found — check hardware fingerprint (handles cookie-cleared case)
-            let fpAuthorized = false;
-            if (fpSubmitted) {
+        } else if (!linkedDevices.includes(deviceId)) {
+            let authorized = false;
+            if (fp) {
                 let linkedFp = [];
-                try { linkedFp = JSON.parse(userData.linked_fingerprints || "[]"); } catch (_) {}
-                if (linkedFp.length > 0 && linkedFp.indexOf(fpSubmitted) !== -1) {
-                    fpAuthorized = true;
-                    linkedDevices.push(deviceId); // re-bind new UUID
+                try { linkedFp = JSON.parse(userData.linked_fingerprints || '[]'); } catch (_) {}
+                if (linkedFp.length > 0 && linkedFp.includes(fp)) {
+                    authorized = true;
+                    linkedDevices.push(deviceId);
                 }
             }
-            if (!fpAuthorized) {
-                return jsonResponse({ status: "ERROR", message: "This device is not authorized for that account." }, 403, corsHeaders);
-            }
+            if (!authorized) return json({ status: 'ERROR', message: 'This device is not authorized.' }, 403, cors);
         }
 
-        // IP logging
-        const geo = extractIpGeo(request);
-        storeIpGeo(clientIp, geo, env);
+        const geo = extractGeo(request);
+        storeGeo(clientIp, geo, env);
         let linkedIps = [];
-        try { linkedIps = JSON.parse(userData.linked_ips || "[]"); } catch (_) {}
-        if (clientIp && linkedIps.indexOf(clientIp) === -1) linkedIps.push(clientIp);
+        try { linkedIps = JSON.parse(userData.linked_ips || '[]'); } catch (_) {}
+        if (!linkedIps.includes(clientIp)) linkedIps.push(clientIp);
 
-        const sessionToken = await createUserSession(normalizedUsername, env);
+        const token = await createSession(norm, env);
 
-        if (passwordCheck.needsUpgrade) {
-            const upgradedHash = await hashPassword(normalizedUsername, password, env);
-            await queryUpstash(["HSET", userKey,
-                "password_hash",  upgradedHash,
-                "linked_devices", JSON.stringify(linkedDevices),
-                "linked_ips",     JSON.stringify(linkedIps)
-            ], env);
-        } else {
-            await queryUpstash(["HSET", userKey,
-                "linked_devices", JSON.stringify(linkedDevices),
-                "linked_ips",     JSON.stringify(linkedIps)
-            ], env);
+        // Update user record (upgrade hash if legacy)
+        const updates = ['linked_devices', JSON.stringify(linkedDevices), 'linked_ips', JSON.stringify(linkedIps)];
+        if (pwCheck.upgrade) {
+            const newHash = await hashPassword(norm, password, env);
+            updates.push('password_hash', newHash);
         }
+        await redis(['HSET', userKey, ...updates], env);
 
-        const headers = createJsonHeaders(corsHeaders);
-        headers.append("Set-Cookie", buildCookie(request, USER_SESSION_COOKIE, sessionToken, { maxAge: USER_SESSION_TTL_SECONDS }));
-
-        return new Response(JSON.stringify({
-            status:        "SUCCESS",
-            username:      normalizedUsername,
-            token:         sessionToken,
-            ink_device_id: deviceId
-        }), { status: 200, headers });
-
+        return jsonWithCookies(
+            { status: 'SUCCESS', username: norm, token, ink_device_id: deviceId },
+            200, cors,
+            [setCookieHeader(request, SESSION_COOKIE, token, SESSION_TTL)]
+        );
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Authentication failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: GET /api/session
-// ════════════════════════════════════════════════════════════
+// ── Handler: GET /api/session ────────────────────────────────────────────────
 
-async function handleSessionInfo(request, env, corsHeaders) {
+async function sessionInfo(request, env, cors) {
     try {
-        // Accept token from query param as fallback for cross-site cookie environments
-        const url        = new URL(request.url);
-        const queryToken = url.searchParams.get("token") || null;
-        const session    = await getUserSession(request, env, queryToken);
+        const token   = new URL(request.url).searchParams.get('token') || null;
+        const session = await resolveSession(request, env, token);
 
         let inkDeviceId = null;
         if (session) {
             try {
-                const deviceFields = await queryUpstash(["HMGET", `user:${session.username}`, "linked_devices"], env);
-                const linked = JSON.parse(deviceFields[0] || "[]");
+                const fields = await redis(['HMGET', `user:${session.username}`, 'linked_devices'], env);
+                const linked = JSON.parse(fields[0] || '[]');
                 if (linked.length > 0) inkDeviceId = linked[0];
             } catch (_) {}
         }
 
-        return jsonResponse({
+        return json({
             authenticated: !!session,
-            username:      session ? session.username : null,
-            token:         session ? session.token    : null,
+            username:      session?.username || null,
+            token:         session?.token    || null,
             ink_device_id: inkDeviceId
-        }, 200, corsHeaders);
+        }, 200, cors);
     } catch (err) {
-        return jsonResponse({ authenticated: false, message: `Session lookup failed: ${err.message}` }, 500, corsHeaders);
+        return json({ authenticated: false, message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/logout
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/logout ────────────────────────────────────────────────
 
-async function handleLogout(request, env, corsHeaders) {
+async function logout(request, env, cors) {
     try {
         let body = {};
         try { body = await request.json(); } catch (_) {}
 
-        const headers = createJsonHeaders(corsHeaders);
-        headers.append("Set-Cookie", clearCookie(request, USER_SESSION_COOKIE));
-        headers.append("Set-Cookie", clearCookie(request, ADMIN_SESSION_COOKIE));
+        const clearCookies = [
+            clearCookieHeader(request, SESSION_COOKIE),
+            clearCookieHeader(request, ADMIN_COOKIE)
+        ];
 
-        const adminSession = await getAdminSession(request, env, body.adminToken || null);
-        if (adminSession) {
-            await revokeAdminSessionToken(adminSession.token, env);
-            return new Response(JSON.stringify({ status: "SUCCESS", scope: "current-admin-session", revokedCount: 1 }), { status: 200, headers });
+        const adminSess = await resolveAdminSession(request, env, body.adminToken || null);
+        if (adminSess) {
+            await redis([
+                ['DEL',  `session:admin:${adminSess.token}`],
+                ['SREM', 'sessions:admin', adminSess.token]
+            ], env);
+            return jsonWithCookies({ status: 'SUCCESS', scope: 'admin', revokedCount: 1 }, 200, cors, clearCookies);
         }
 
-        const userSession = await getUserSession(request, env, body.sessionToken || null);
-        if (userSession) {
-            const allSessions  = body.allSessions !== false;
-            const revokedCount = allSessions
-                ? await revokeUserSessions(userSession.username, env)
-                : (await revokeUserSessionToken(userSession.username, userSession.token, env), 1);
-
-            return new Response(JSON.stringify({
-                status:       "SUCCESS",
-                scope:        allSessions ? "all-user-sessions" : "current-user-session",
-                revokedCount
-            }), { status: 200, headers });
+        const userSess = await resolveSession(request, env, body.sessionToken || null);
+        if (userSess) {
+            const all          = body.allSessions !== false;
+            const revokedCount = all
+                ? await revokeAllSessions(userSess.username, env)
+                : (await revokeSession(userSess.username, userSess.token, env), 1);
+            return jsonWithCookies({ status: 'SUCCESS', scope: all ? 'all' : 'current', revokedCount }, 200, cors, clearCookies);
         }
 
-        return new Response(JSON.stringify({ status: "SUCCESS", scope: "no-active-session", revokedCount: 0 }), { status: 200, headers });
-
+        return jsonWithCookies({ status: 'SUCCESS', scope: 'none', revokedCount: 0 }, 200, cors, clearCookies);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Logout failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/change-password
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/change-password ──────────────────────────────────────
 
-async function handleChangePassword(request, env, corsHeaders) {
+async function changePassword(request, env, cors) {
     try {
-        const body        = await request.json();
-        const oldPassword = body.oldPassword;
-        const newPassword = body.newPassword;
+        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const rateKey  = `rate:chpw:${clientIp}`;
+        const attempts = await redis(['INCR', rateKey], env);
+        if (attempts === 1) await redis(['EXPIRE', rateKey, '300'], env);
+        if (attempts > 5)   return json({ status: 'ERROR', message: 'Too many attempts. Wait 5 minutes.' }, 429, cors);
 
-        if (!oldPassword || !newPassword) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameters: oldPassword and newPassword are required." }, 400, corsHeaders);
-        }
+        const body    = await request.json();
+        const oldPw   = body.oldPassword;
+        const newPw   = body.newPassword;
 
-        const session = await getUserSession(request, env, body.sessionToken || null);
-        if (!session) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired session token." }, 401, corsHeaders);
-        }
+        if (!oldPw || !newPw) return json({ status: 'ERROR', message: 'oldPassword and newPassword required.' }, 400, cors);
+        if (newPw.length < 4) return json({ status: 'ERROR', message: 'Minimum 4 characters.' }, 400, cors);
 
-        const username = session.username;
-        const userKey  = `user:${username}`;
-        const userRaw  = await queryUpstash(["HGETALL", userKey], env);
-        const userData = flatArrayToObject(userRaw);
+        const session = await resolveSession(request, env, body.sessionToken || null);
+        if (!session)  return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
 
-        if (!userData.password_hash) {
-            return jsonResponse({ status: "ERROR", message: "User profile not found." }, 404, corsHeaders);
-        }
+        const userKey  = `user:${session.username}`;
+        const userData = flatMap(await redis(['HGETALL', userKey], env));
+        if (!userData.password_hash) return json({ status: 'ERROR', message: 'User not found.' }, 404, cors);
 
-        const passwordCheck = await verifyPassword(username, oldPassword, userData.password_hash, env);
-        if (!passwordCheck.valid) {
-            return jsonResponse({ status: "ERROR", message: "Incorrect current password." }, 400, corsHeaders);
-        }
+        const pwCheck = await verifyPassword(session.username, oldPw, userData.password_hash, env);
+        if (!pwCheck.valid) return json({ status: 'ERROR', message: 'Incorrect current password.' }, 400, cors);
 
-        const newHash  = await hashPassword(username, newPassword, env);
-        await queryUpstash(["HSET", userKey, "password_hash", newHash], env);
-        await revokeUserSessions(username, env);
+        const newHash = await hashPassword(session.username, newPw, env);
+        await redis(['HSET', userKey, 'password_hash', newHash], env);
+        await revokeAllSessions(session.username, env);
 
-        const newToken = await createUserSession(username, env);
-        const headers  = createJsonHeaders(corsHeaders);
-        headers.append("Set-Cookie", buildCookie(request, USER_SESSION_COOKIE, newToken, { maxAge: USER_SESSION_TTL_SECONDS }));
-
-        return new Response(JSON.stringify({ status: "SUCCESS", message: "Password updated successfully.", token: newToken }), { status: 200, headers });
-
+        const newToken = await createSession(session.username, env);
+        return jsonWithCookies(
+            { status: 'SUCCESS', token: newToken },
+            200, cors,
+            [setCookieHeader(request, SESSION_COOKIE, newToken, SESSION_TTL)]
+        );
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Password change failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/login
-// ════════════════════════════════════════════════════════════
+// ── Admin: auth check ────────────────────────────────────────────────────────
 
-async function handleAdminLogin(request, env, corsHeaders) {
+async function requireAdmin(request, env, cors) {
+    const sess = await resolveAdminSession(request, env);
+    if (!sess) return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
+    return null;
+}
+
+// ── Handler: POST /api/admin/login ───────────────────────────────────────────
+
+async function adminLogin(request, env, cors) {
     try {
-        const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
+        const clientIp = request.cf?.connectingIp || '127.0.0.1';
         const rateKey  = `rate:admin_login:${clientIp}`;
-        const attempts = await queryUpstash(["INCR", rateKey], env);
-        if (attempts === 1) await queryUpstash(["EXPIRE", rateKey, "600"], env);
-        if (attempts > 5) {
-            return jsonResponse({ status: "ERROR", message: "Too many attempts. Administrative login locked for 10 minutes." }, 429, corsHeaders);
-        }
+        const attempts = await redis(['INCR', rateKey], env);
+        if (attempts === 1) await redis(['EXPIRE', rateKey, '600'], env);
+        if (attempts > 5)   return json({ status: 'ERROR', message: 'Too many attempts. Locked for 10 minutes.' }, 429, cors);
 
-        const expectedPassword = env.ADMIN_PASSWORD;
-        if (!expectedPassword) {
-            return jsonResponse({ status: "ERROR", message: "Administrative authentication unavailable: credentials unconfigured." }, 500, corsHeaders);
-        }
+        if (!env.ADMIN_PASSWORD) return json({ status: 'ERROR', message: 'Admin login not configured.' }, 500, cors);
 
         const body = await request.json();
-        if (!body.password || body.password !== expectedPassword) {
-            return jsonResponse({ status: "ERROR", message: "Authentication failed: Invalid administrator credentials." }, 401, corsHeaders);
+        if (!body.password || body.password !== env.ADMIN_PASSWORD) {
+            return json({ status: 'ERROR', message: 'Invalid admin credentials.' }, 401, cors);
         }
 
-        const adminToken = await createAdminSession(env);
-        const headers    = createJsonHeaders(corsHeaders);
-        headers.append("Set-Cookie", buildCookie(request, ADMIN_SESSION_COOKIE, adminToken, { maxAge: ADMIN_SESSION_TTL_SECONDS }));
-
-        return new Response(JSON.stringify({ status: "SUCCESS", token: adminToken }), { status: 200, headers });
-
+        const token = await createAdminSession(env);
+        return jsonWithCookies(
+            { status: 'SUCCESS', token },
+            200, cors,
+            [setCookieHeader(request, ADMIN_COOKIE, token, ADMIN_SESSION_TTL)]
+        );
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Admin login failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: GET /api/admin/session
-// ════════════════════════════════════════════════════════════
+// ── Handler: GET /api/admin/session ─────────────────────────────────────────
 
-async function handleAdminSessionInfo(request, env, corsHeaders) {
+async function adminSession(request, env, cors) {
     try {
-        const adminSession = await getAdminSession(request, env);
-        return jsonResponse({ authenticated: !!adminSession }, 200, corsHeaders);
+        const sess = await resolveAdminSession(request, env);
+        return json({ authenticated: !!sess }, 200, cors);
     } catch (err) {
-        return jsonResponse({ authenticated: false, message: `Admin session lookup failed: ${err.message}` }, 500, corsHeaders);
+        return json({ authenticated: false, message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: GET /api/admin/user-lookup
-// ════════════════════════════════════════════════════════════
+// ── Handler: GET /api/admin/user-lookup ─────────────────────────────────────
 
-async function handleAdminUserLookup(request, env, corsHeaders) {
+async function adminUserLookup(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        const url      = new URL(request.url);
-        const username = url.searchParams.get("username");
-        if (!username) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameter: username is required." }, 400, corsHeaders);
-        }
+        const username = new URL(request.url).searchParams.get('username');
+        if (!username) return json({ status: 'ERROR', message: 'username required.' }, 400, cors);
 
-        const userKey    = `user:${username.toLowerCase()}`;
-        const userExists = await queryUpstash(["EXISTS", userKey], env);
-        if (!userExists) {
-            return jsonResponse({ status: "ERROR", message: "User profile not found." }, 404, corsHeaders);
-        }
+        const norm    = normalize(username);
+        const userKey = `user:${norm}`;
+        const exists  = await redis(['EXISTS', userKey], env);
+        if (!exists)  return json({ status: 'ERROR', message: 'User not found.' }, 404, cors);
 
-        // HMGET — password hash never enters worker memory during mod queries
-        const fields = await queryUpstash(["HMGET", userKey, "linked_devices", "linked_ips"], env);
-        let linkedDevices = [];
-        let linkedIps     = [];
-        try { linkedDevices = JSON.parse(fields[0] || "[]"); } catch (_) {}
-        try { linkedIps     = JSON.parse(fields[1] || "[]"); } catch (_) {}
+        const [fields, accountStatus, sessionTokens] = await Promise.all([
+            redis(['HMGET', userKey, 'linked_devices', 'linked_ips'], env),
+            redis(['GET', `account:status:${norm}`], env),
+            redis(['SMEMBERS', `sessions:user:${norm}`], env)
+        ]);
 
-        const accountStatus = await queryUpstash(["GET", `account:status:${username.toLowerCase()}`], env);
-        const isBanned      = accountStatus === "BANNED";
+        let linkedDevices = [], linkedIps = [];
+        try { linkedDevices = JSON.parse(fields[0] || '[]'); } catch (_) {}
+        try { linkedIps     = JSON.parse(fields[1] || '[]'); } catch (_) {}
 
-        // IP geo lookup
-        let mappedIps = [];
+        // Geo lookup for all IPs in one pipeline
+        let mappedIps = linkedIps.map(ip => ({ ip, geo: null }));
         if (linkedIps.length > 0) {
-            const ipPipeline = linkedIps.map(ip => ["GET", `ip_geo:${ip}`]);
-            const ipResults  = await queryUpstash(ipPipeline, env);
+            const geoResults = await redis(linkedIps.map(ip => ['GET', `ip_geo:${ip}`]), env);
             for (let i = 0; i < linkedIps.length; i++) {
-                let geo = null;
-                try { geo = JSON.parse(ipResults[i] ? ipResults[i].result : null); } catch (_) {}
-                mappedIps.push({ ip: linkedIps[i], geo });
+                try { mappedIps[i].geo = JSON.parse(geoResults[i]?.result || null); } catch (_) {}
             }
         }
 
-        // Active session count
-        let activeSessionCount = 0;
-        const sessionTokens    = await queryUpstash(["SMEMBERS", `sessions:user:${username.toLowerCase()}`], env);
-        if (Array.isArray(sessionTokens) && sessionTokens.length > 0) {
-            const sessionResults = await queryUpstash(sessionTokens.map(t => ["GET", `session:${t}`]), env);
-            for (let i = 0; i < sessionTokens.length; i++) {
-                const val = sessionResults[i] ? sessionResults[i].result : null;
-                if (val === username.toLowerCase()) activeSessionCount++;
+        // Count valid sessions
+        let activeSessions = 0;
+        const tokens = Array.isArray(sessionTokens) ? sessionTokens : [];
+        if (tokens.length > 0) {
+            const sessResults = await redis(tokens.map(t => ['GET', `session:${t}`]), env);
+            for (let i = 0; i < tokens.length; i++) {
+                if (sessResults[i]?.result === norm) activeSessions++;
             }
         }
 
-        return jsonResponse({
-            status:             "SUCCESS",
-            username:           username.toLowerCase(),
-            passwordHashStatus: isBanned ? "BANNED" : "ACTIVE",
+        return json({
+            status:         'SUCCESS',
+            username:       norm,
+            banned:         accountStatus === 'BANNED',
             linkedDevices,
-            linkedIps:          mappedIps,
-            activeSessionCount
-        }, 200, corsHeaders);
-
+            linkedIps:      mappedIps,
+            activeSessions
+        }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `User lookup failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/ban
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/admin/ban ─────────────────────────────────────────────
 
-async function handleAdminBan(request, env, corsHeaders) {
+async function adminBan(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        const body   = await request.json();
-        const type   = body.type;
-        const target = body.target;
-
-        if (!type || !target) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameters: type and target are required." }, 400, corsHeaders);
-        }
+        const { type, target } = await request.json();
+        if (!type || !target) return json({ status: 'ERROR', message: 'type and target required.' }, 400, cors);
 
         let revokedCount = 0;
-
-        if (type === "account") {
-            await queryUpstash(["SET", `account:status:${target.toLowerCase()}`, "BANNED"], env);
-            revokedCount = await revokeUserSessions(target, env);
-        } else if (type === "device") {
-            await queryUpstash(["SET", `device:status:${target}`, "BANNED"], env);
-        } else if (type === "ip") {
-            await queryUpstash(["SET", `ip:${target}`, "BANNED"], env);
+        if (type === 'account') {
+            await redis(['SET', `account:status:${normalize(target)}`, 'BANNED'], env);
+            revokedCount = await revokeAllSessions(target, env);
+        } else if (type === 'device') {
+            await redis(['SET', `device:status:${target}`, 'BANNED'], env);
+        } else if (type === 'ip') {
+            await redis(['SET', `ip:${target}`, 'BANNED'], env);
         } else {
-            return jsonResponse({ status: "ERROR", message: "Invalid ban type. Allowed: account, device, ip." }, 400, corsHeaders);
+            return json({ status: 'ERROR', message: 'type must be: account, device, or ip.' }, 400, cors);
         }
 
-        return jsonResponse({
-            status:       "SUCCESS",
-            message:      `${type} ban executed on: ${target}`,
-            revokedCount
-        }, 200, corsHeaders);
-
+        return json({ status: 'SUCCESS', type, target, revokedCount }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Ban failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/delete-message
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/admin/delete-message ──────────────────────────────────
 
-async function handleAdminDeleteMessage(request, env, corsHeaders) {
+async function adminDeleteMessage(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        const body = await request.json();
-        if (!body.messageRaw) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameter: messageRaw is required." }, 400, corsHeaders);
-        }
+        const { messageRaw } = await request.json();
+        if (!messageRaw) return json({ status: 'ERROR', message: 'messageRaw required.' }, 400, cors);
 
-        await queryUpstash(["LREM", "chat:messages", "1", body.messageRaw], env);
-        return jsonResponse({ status: "SUCCESS", message: "Message deleted." }, 200, corsHeaders);
-
+        await redis(['LREM', 'chat:messages', '1', messageRaw], env);
+        return json({ status: 'SUCCESS' }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Message deletion failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/purge-messages
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/admin/purge-messages ──────────────────────────────────
 
-async function handleAdminPurgeMessages(request, env, corsHeaders) {
+async function adminPurgeMessages(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        await queryUpstash(["DEL", "chat:messages"], env);
-        return jsonResponse({ status: "SUCCESS", message: "All chat messages purged." }, 200, corsHeaders);
-
+        await redis(['DEL', 'chat:messages'], env);
+        return json({ status: 'SUCCESS', message: 'All messages purged.' }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Purge failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/mute-user
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/admin/mute-user ───────────────────────────────────────
 
-async function handleAdminMuteUser(request, env, corsHeaders) {
+async function adminMuteUser(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        const body            = await request.json();
-        const username        = body.username;
-        const durationSeconds = body.durationSeconds;
-
+        const { username, durationSeconds } = await request.json();
         if (!username || !durationSeconds) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameters: username and durationSeconds are required." }, 400, corsHeaders);
+            return json({ status: 'ERROR', message: 'username and durationSeconds required.' }, 400, cors);
         }
+        const dur = parseInt(durationSeconds, 10);
+        if (isNaN(dur) || dur <= 0) return json({ status: 'ERROR', message: 'Invalid duration.' }, 400, cors);
 
-        const duration = parseInt(durationSeconds, 10);
-        if (isNaN(duration) || duration <= 0) {
-            return jsonResponse({ status: "ERROR", message: "Invalid mute duration." }, 400, corsHeaders);
-        }
-
-        await queryUpstash(["SET", `mute:${username.toLowerCase()}`, "1", "EX", String(duration)], env);
-        return jsonResponse({ status: "SUCCESS", message: `User ${username} muted for ${duration} seconds.` }, 200, corsHeaders);
-
+        await redis(['SET', `mute:${normalize(username)}`, '1', 'EX', String(dur)], env);
+        return json({ status: 'SUCCESS', username, durationSeconds: dur }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Mute failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/reset-password
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/admin/reset-password ──────────────────────────────────
 
-async function handleAdminResetPassword(request, env, corsHeaders) {
+async function adminResetPassword(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        const body        = await request.json();
-        const username    = body.username;
-        const newPassword = body.newPassword;
+        const { username, newPassword } = await request.json();
+        if (!username || !newPassword)    return json({ status: 'ERROR', message: 'username and newPassword required.' }, 400, cors);
+        if (newPassword.length < 4)       return json({ status: 'ERROR', message: 'Minimum 4 characters.' }, 400, cors);
 
-        if (!username || !newPassword) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameters: username and newPassword are required." }, 400, corsHeaders);
-        }
+        const norm    = normalize(username);
+        const userKey = `user:${norm}`;
+        const exists  = await redis(['EXISTS', userKey], env);
+        if (!exists)  return json({ status: 'ERROR', message: 'User not found.' }, 404, cors);
 
-        if (newPassword.length < 4) {
-            return jsonResponse({ status: "ERROR", message: "Password must be at least 4 characters." }, 400, corsHeaders);
-        }
+        const newHash      = await hashPassword(norm, newPassword, env);
+        await redis(['HSET', userKey, 'password_hash', newHash], env);
+        const revokedCount = await revokeAllSessions(norm, env);
 
-        const userKey = `user:${username.toLowerCase()}`;
-        const exists  = await queryUpstash(["EXISTS", userKey], env);
-        if (!exists) {
-            return jsonResponse({ status: "ERROR", message: "User profile not found." }, 404, corsHeaders);
-        }
-
-        const newHash      = await hashPassword(username.toLowerCase(), newPassword, env);
-        await queryUpstash(["HSET", userKey, "password_hash", newHash], env);
-        const revokedCount = await revokeUserSessions(username, env);
-
-        return jsonResponse({ status: "SUCCESS", message: `Password reset for ${username}.`, revokedCount }, 200, corsHeaders);
-
+        return json({ status: 'SUCCESS', username: norm, revokedCount }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Password reset failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Handler: POST /api/admin/revoke-sessions
-// ════════════════════════════════════════════════════════════
+// ── Handler: POST /api/admin/revoke-sessions ─────────────────────────────────
 
-async function handleAdminRevokeSessions(request, env, corsHeaders) {
+async function adminRevokeSessions(request, env, cors) {
     try {
-        if (!await verifyAdminSession(request, env)) {
-            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired administrator session." }, 401, corsHeaders);
-        }
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
 
-        const body = await request.json();
-        if (!body.username) {
-            return jsonResponse({ status: "ERROR", message: "Missing parameter: username is required." }, 400, corsHeaders);
-        }
+        const { username } = await request.json();
+        if (!username) return json({ status: 'ERROR', message: 'username required.' }, 400, cors);
 
-        const revokedCount = await revokeUserSessions(body.username, env);
-        return jsonResponse({ status: "SUCCESS", message: `Revoked ${revokedCount} session(s) for ${body.username}.`, revokedCount }, 200, corsHeaders);
-
+        const revokedCount = await revokeAllSessions(normalize(username), env);
+        return json({ status: 'SUCCESS', username, revokedCount }, 200, cors);
     } catch (err) {
-        return jsonResponse({ status: "ERROR", message: `Session revocation failed: ${err.message}` }, 500, corsHeaders);
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }

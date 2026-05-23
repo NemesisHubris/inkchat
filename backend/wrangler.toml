@@ -10,11 +10,7 @@ class_name = "ChatRoom"
 tag         = "v1"
 new_classes = ["ChatRoom"]
 
-[vars]
-# PUBLIC CONFIG — non-sensitive only
-# UPSTASH_REDIS_REST_URL = "https://your-upstash-instance.upstash.io"
-
-# SECRETS — deploy with wrangler secret put <NAME>:
+# SECRETS — set with: wrangler secret put <NAME>
 #   wrangler secret put UPSTASH_REDIS_REST_URL
 #   wrangler secret put UPSTASH_REDIS_REST_TOKEN
 #   wrangler secret put OPENAI_API_KEY
