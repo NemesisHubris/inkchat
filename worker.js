@@ -191,60 +191,6 @@ const APP_HTML = `<!DOCTYPE html>
     </div>
 </div>
 
-<script>
-// Secondary screen-size gate.
-// Known e-ink resolutions (portrait and landscape):
-//   Kindle Paperwhite 1-3:  758x1024
-//   Kindle Paperwhite 4-5:  1072x1448
-//   Kindle Oasis 2-3:       1264x1680
-//   Kindle Scribe:          1860x2480
-//   Kobo Clara / Libra:     1072x1448 / 1264x1680
-//   Kobo Elipsa / Sage:     1404x1872 / 1440x1920
-//   reMarkable 2:           1404x1872
-//   Boox Note Air:          1404x1872
-// Allow ±10px tolerance for browser chrome/zoom.
-(function() {
-  var w = screen.width, h = screen.height;
-  var long = Math.max(w, h), short = Math.min(w, h);
-  var known = [
-    // Kindle Scribe 2025
-    [1986,2648],
-    // Kindle Scribe / Scribe 2024
-    [1860,2480],
-    // Kindle Colorsoft, Paperwhite 6 / 6 Sig Ed
-    [1272,1696],
-    // Kindle PW 12th Gen, Oasis 2/3, Kobo Libra 2/H2O, Boox Page, PocketBook Era
-    [1264,1680],
-    // Kindle PW 5 / 11th Gen, PW 5 Sig Ed
-    [1236,1648],
-    // Kindle 11/2024, PW 3/4/10th, Oasis 1, Voyage, Kobo Clara BW/2E/HD, Nook GlowLight 4
-    [1072,1448],
-    // Kobo Elipsa 2E, reMarkable 2, Boox Note Air/Tab Ultra, PocketBook InkPad 4
-    [1404,1872],
-    // Kobo Sage
-    [1440,1920],
-    // Kindle PW 1/2, Kobo Nia
-    [758,1024],
-    // Kindle DX
-    [824,1200],
-    // Boox Palma
-    [824,1648],
-    // Kindle 1–10, Touch, Keyboard
-    [600,800]
-  ];
-  var TOL = 20;
-  var ok = false;
-  for (var i = 0; i < known.length; i++) {
-    var kl = Math.max(known[i][0], known[i][1]);
-    var ks = Math.min(known[i][0], known[i][1]);
-    if (Math.abs(long - kl) <= TOL && Math.abs(short - ks) <= TOL) { ok = true; break; }
-  }
-  if (!ok) {
-    document.documentElement.innerHTML = document.documentElement.innerHTML
-      .replace(/<body[\s\S]*$/i, '') + '<body style="font-family:monospace;background:#bbb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="background:#fff;border:2px solid #000;box-shadow:5px 5px 0 #000;padding:40px;text-align:center;max-width:380px"><div style="height:6px;background:repeating-linear-gradient(90deg,#000 0,#000 2px,transparent 2px,transparent 4px);margin-bottom:20px"></div><b style="display:block;font-size:14px;text-transform:uppercase;letter-spacing:2px;margin-bottom:16px">InkChat</b><p style="font-size:13px;line-height:1.7">You can only access InkChat from your Kindle or Kobo.</p><div style="height:6px;background:repeating-linear-gradient(90deg,#000 0,#000 2px,transparent 2px,transparent 4px);margin-top:20px"></div></div></body></html>';
-  }
-})();
-</script>
 <script src="telemetry.js"></script>
 <script src="app.js"></script>
 </body>

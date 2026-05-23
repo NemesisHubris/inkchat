@@ -255,10 +255,6 @@ function isReserved(username) {
     return n === 'admin' || n.startsWith('dev_') || n.startsWith('supporter_');
 }
 
-function mask(username) {
-    if (!username || username.length <= 6) return username;
-    return username.slice(0, 5) + '***' + username.slice(-2);
-}
 
 function bytesToHex(bytes) {
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -573,7 +569,7 @@ async function register(request, env, cors) {
             'linked_ips',          JSON.stringify([clientIp]),
             'linked_fingerprints', JSON.stringify(fp ? [fp] : [])
         ], env);
-        storeGeo(clientIp, geo, env);
+        await storeGeo(clientIp, geo, env);
         if (fp) await redis(['SET', `fp_to_user:${fp}`, norm, 'EX', String(86400 * 730)], env);
 
         return jsonWithCookies(
@@ -644,7 +640,7 @@ async function login(request, env, cors) {
         }
 
         const geo = extractGeo(request);
-        storeGeo(clientIp, geo, env);
+        await storeGeo(clientIp, geo, env);
         let linkedIps = [];
         try { linkedIps = JSON.parse(userData.linked_ips || '[]'); } catch (_) {}
         if (!linkedIps.includes(clientIp)) linkedIps.push(clientIp);
