@@ -82,7 +82,7 @@ export default {
 
         if (pathname === "/api/moderate-content"    && request.method === "POST") return handleModerateContent(request, env, corsHeaders);
         if (pathname === "/api/get-messages"        && request.method === "GET")  return handleGetMessages(request, env, corsHeaders);
-        if (pathname === "/api/send-message"        && request.method === "POST") return handleSendMessage(request, env, corsHeaders);
+        if (pathname === "/api/send-message"        && request.method === "POST") return handleSendMessage(request, env, corsHeaders, ctx);
         if (pathname === "/api/register"            && request.method === "POST") return handleRegister(request, env, corsHeaders);
         if (pathname === "/api/login"               && request.method === "POST") return handleLogin(request, env, corsHeaders);
         if (pathname === "/api/session"             && request.method === "GET")  return handleSessionInfo(request, env, corsHeaders);
@@ -491,7 +491,7 @@ async function handleGetMessages(request, env, corsHeaders) {
 // Handler: POST /api/send-message
 // ════════════════════════════════════════════════════════════
 
-async function handleSendMessage(request, env, corsHeaders) {
+async function handleSendMessage(request, env, corsHeaders, ctx) {
     try {
         const body          = await request.json();
         const text          = body.text;
@@ -524,48 +524,35 @@ async function handleSendMessage(request, env, corsHeaders) {
                 return jsonResponse({ status: "ERROR", message: "Missing parameter: ink_device_id is required." }, 400, corsHeaders);
             }
 
-            // Device ban — instant block before any other work
-            const deviceStatus = await queryUpstash(["GET", `device:status:${ink_device_id}`], env);
-            if (deviceStatus === "BANNED") {
-                return jsonResponse({ status: "ERROR", message: "This hardware node is banned permanently." }, 403, corsHeaders);
-            }
+            // Parallel ban/mute checks
+            const [deviceStatus, accountStatus, isMuted] = await Promise.all([
+                queryUpstash(["GET", `device:status:${ink_device_id}`], env),
+                queryUpstash(["GET", `account:status:${username}`], env),
+                queryUpstash(["GET", `mute:${username}`], env)
+            ]);
 
-            // Account ban
-            const accountStatus = await queryUpstash(["GET", `account:status:${username}`], env);
-            if (accountStatus === "BANNED") {
-                return jsonResponse({ status: "ERROR", message: "Access Denied: Your account has been permanently restricted." }, 403, corsHeaders);
-            }
+            if (deviceStatus === "BANNED")  return jsonResponse({ status: "ERROR", message: "This hardware node is banned permanently." }, 403, corsHeaders);
+            if (accountStatus === "BANNED") return jsonResponse({ status: "ERROR", message: "Access Denied: Your account has been permanently restricted." }, 403, corsHeaders);
+            if (isMuted)                    return jsonResponse({ status: "ERROR", message: "Access Denied: You have been temporarily muted by an administrator." }, 403, corsHeaders);
 
-            // Mute check
-            const isMuted = await queryUpstash(["GET", `mute:${username}`], env);
-            if (isMuted) {
-                return jsonResponse({ status: "ERROR", message: "Access Denied: You have been temporarily muted by an administrator." }, 403, corsHeaders);
-            }
-
-            // Payload size limit
             if (text.length > 500) {
                 return jsonResponse({ status: "ERROR", message: "Payload too large: Messages are limited to 500 characters." }, 413, corsHeaders);
             }
 
-            // Sliding rate limit — 3 messages per 5 seconds per session token
-            const rateKey      = `rate:send-message:${sessionToken}`;
-            const currentCount = await queryUpstash(["INCR", rateKey], env);
-            if (currentCount === 1) {
-                await queryUpstash(["EXPIRE", rateKey, "5"], env);
-            }
-            if (currentCount > 3) {
-                return jsonResponse({ status: "ERROR", message: "Rate limit exceeded: 3 messages per 5 seconds." }, 429, corsHeaders);
-            }
+            // Parallel: rate limit + global cooldown + duplicate check + device binding
+            const rateKey = `rate:send-message:${sessionToken}`;
+            const [currentCount, cooldownSet, lastMessageRaw, deviceFields] = await Promise.all([
+                queryUpstash(["INCR", rateKey], env),
+                queryUpstash(["SET", "chat:cooldown", "1", "NX", "EX", "1"], env),
+                queryUpstash(["LINDEX", "chat:messages", "0"], env),
+                queryUpstash(["HMGET", `user:${username}`, "linked_devices"], env)
+            ]);
 
-            // Global room cooldown — atomic SET NX is the gate itself, no GET needed
-            // Returns "OK" if key was set (no cooldown active), null if key existed (cooldown active)
-            const cooldownSet = await queryUpstash(["SET", "chat:cooldown", "1", "NX", "EX", "1"], env);
-            if (cooldownSet === null) {
-                return jsonResponse({ status: "ERROR", message: "Slow down! Chat is moving too fast." }, 429, corsHeaders);
-            }
+            // Set TTL on rate key only when first increment
+            if (currentCount === 1) await queryUpstash(["EXPIRE", rateKey, "5"], env);
+            if (currentCount > 3)   return jsonResponse({ status: "ERROR", message: "Rate limit exceeded: 3 messages per 5 seconds." }, 429, corsHeaders);
+            if (cooldownSet === null) return jsonResponse({ status: "ERROR", message: "Slow down! Chat is moving too fast." }, 429, corsHeaders);
 
-            // Lookback duplicate blocker
-            const lastMessageRaw = await queryUpstash(["LINDEX", "chat:messages", "0"], env);
             if (lastMessageRaw) {
                 try {
                     const lastMsg = JSON.parse(lastMessageRaw);
@@ -575,37 +562,14 @@ async function handleSendMessage(request, env, corsHeaders) {
                 } catch (_) {}
             }
 
-            // Device binding — HMGET keeps password hash out of worker memory
-            const deviceFields = await queryUpstash(["HMGET", `user:${username}`, "linked_devices"], env);
-            let linkedDevices  = [];
+            let linkedDevices = [];
             try { linkedDevices = JSON.parse(deviceFields[0] || "[]"); } catch (_) {}
-
             if (linkedDevices.length > 0 && linkedDevices.indexOf(ink_device_id) === -1) {
                 return jsonResponse({ status: "ERROR", message: "Unauthorized: Session is not valid for this device." }, 403, corsHeaders);
             }
-
-            // AI content moderation (most expensive check — runs last)
-            const openaiKey = env.OPENAI_API_KEY;
-            if (!openaiKey) throw new Error("OPENAI_API_KEY binding is missing.");
-
-            const modResponse = await fetch("https://api.openai.com/v1/moderations", {
-                method: "POST",
-                headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ input: text, model: "omni-moderation-latest" })
-            });
-
-            if (!modResponse.ok) throw new Error(`OpenAI moderation HTTP ${modResponse.status}`);
-
-            const evalResult = evaluateSafetyMultiTier(await modResponse.json());
-            if (evalResult.flagged) {
-                return jsonResponse({
-                    status:  "ERROR",
-                    message: `Message blocked: Content policy violation [${evalResult.reason}].`
-                }, 400, corsHeaders);
-            }
         }
 
-        // ── 3. Build sanitized public payload — no tokens, no device IDs ────
+        // ── 3. Build sanitized message payload ───────────────────────────────
         let maskedUserId = username;
         if (!isAdmin && username.length > 6) {
             maskedUserId = username.substring(0, 5) + "***" + username.substring(username.length - 2);
@@ -627,11 +591,36 @@ async function handleSendMessage(request, env, corsHeaders) {
             };
         }
 
-        // ── 4. Commit — cooldown already set by gate above ──────────────────
+        const messageStr = JSON.stringify(messageObject);
+
+        // ── 4. Commit immediately ────────────────────────────────────────────
         await queryUpstash([
-            ["LPUSH", "chat:messages", JSON.stringify(messageObject)],
+            ["LPUSH", "chat:messages", messageStr],
             ["LTRIM", "chat:messages", "0", "99"]
         ], env);
+
+        // ── 5. Respond immediately, then moderate in background ───────────────
+        // Moderation is async — if flagged the message is deleted after the fact.
+        if (!isAdmin && ctx) {
+            const openaiKey = env.OPENAI_API_KEY;
+            if (openaiKey) {
+                ctx.waitUntil((async () => {
+                    try {
+                        const modResponse = await fetch("https://api.openai.com/v1/moderations", {
+                            method:  "POST",
+                            headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+                            body:    JSON.stringify({ input: text, model: "omni-moderation-latest" })
+                        });
+                        if (modResponse.ok) {
+                            const evalResult = evaluateSafetyMultiTier(await modResponse.json());
+                            if (evalResult.flagged) {
+                                await queryUpstash(["LREM", "chat:messages", "1", messageStr], env);
+                            }
+                        }
+                    } catch (_) {}
+                })());
+            }
+        }
 
         return jsonResponse({ status: "SUCCESS" }, 200, corsHeaders);
 
