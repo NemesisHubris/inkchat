@@ -1,12 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "inkchat",
+  "main": "worker.js",
   "compatibility_date": "2026-05-23",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "frontend"
+    "directory": "frontend",
+    "binding": "ASSETS"
   },
   "compatibility_flags": [
     "nodejs_compat"
