@@ -1,0 +1,8 @@
+.DS_Store
+.antigravitycli/
+node_modules/
+.wrangler/
+dist/
+.env
+*.log
+.eslintcache

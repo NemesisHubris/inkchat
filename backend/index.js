@@ -150,7 +150,10 @@ async function queryUpstash(commandArray, env) {
     }
 
     // Clean trailing slashes out of URL variables
-    const endpoint = redisUrl.replace(/\/$/, "");
+    let endpoint = redisUrl.replace(/\/$/, "");
+    if (Array.isArray(commandArray[0])) {
+        endpoint += "/pipeline";
+    }
 
     const response = await fetch(endpoint, {
         method: "POST",
@@ -657,7 +660,7 @@ async function handleSendMessage(request, env, corsHeaders) {
         await queryUpstash([
             ["LPUSH", "chat:messages", messageObjectString],
             ["LTRIM", "chat:messages", "0", "99"],
-            ["SET", "chat:cooldown", "1", "EX", "1"]
+            ["SET", "chat:cooldown", "1", "NX", "EX", "1"]
         ], env);
 
         return new Response(JSON.stringify({ status: "SUCCESS" }), {

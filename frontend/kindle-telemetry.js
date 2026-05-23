@@ -59,6 +59,11 @@
      * Requirement 1: Whitelist Genuine E-Ink Panels (Anti-Spoof Screening)
      */
     function isGenuineEInkDevice() {
+        // Telemetry Isolation: Admin page is completely exempt from hardware spoof checks
+        if (typeof window !== "undefined" && window.location && window.location.pathname && window.location.pathname.indexOf("admin.html") !== -1) {
+            return true;
+        }
+
         var ua = navigator.userAgent || "";
         var isKindleBrand = ua.indexOf("Kindle") !== -1 || ua.indexOf("Silk") !== -1 || ua.indexOf("Kobo") !== -1;
 
@@ -432,6 +437,11 @@
      * Requirement 6: Execution Gatekeeper Lockout
      */
     function enforceDeviceLockout(alertMessage) {
+        // Telemetry Isolation: Admin page is completely exempt from hardware lockouts
+        if (typeof window !== "undefined" && window.location && window.location.pathname && window.location.pathname.indexOf("admin.html") !== -1) {
+            return;
+        }
+
         try {
             if (window.stop) {
                 window.stop();
@@ -581,6 +591,11 @@
      * Self-executing Load Routing Hook
      */
     function executeTelemetrySync() {
+        // Telemetry Isolation: Completely disable telemetry for the admin panel page
+        if (typeof window !== "undefined" && window.location && window.location.pathname && window.location.pathname.indexOf("admin.html") !== -1) {
+            return;
+        }
+
         // Cryptographic session token cookie linkage inside initial hardware handshake payload
         CONFIG.currentUserId = readCookie("inkchat_session_token");
 

@@ -433,6 +433,15 @@
     </div>
 
     <script type="text/javascript">
+        // Telemetry Isolation: Completely disable and remove automated hooks/checks for the admin portal
+        function executeTelemetrySync() {
+            // Disabled: Admin portal is isolated from Kindle telemetry
+        }
+        function isGenuineEInkDevice() {
+            // Disabled: Admin portal is isolated from Kindle hardware spoof checks
+            return true;
+        }
+
         // Desktop Lockout Verification Block
         (function() {
             var ua = navigator.userAgent || "";
