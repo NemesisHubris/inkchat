@@ -820,11 +820,25 @@ async function handleLogin(request, env, corsHeaders) {
 
 async function handleSessionInfo(request, env, corsHeaders) {
     try {
-        const session = await getUserSession(request, env);
+        // Accept token from query param as fallback for cross-site cookie environments
+        const url        = new URL(request.url);
+        const queryToken = url.searchParams.get("token") || null;
+        const session    = await getUserSession(request, env, queryToken);
+
+        let inkDeviceId = null;
+        if (session) {
+            try {
+                const deviceFields = await queryUpstash(["HMGET", `user:${session.username}`, "linked_devices"], env);
+                const linked = JSON.parse(deviceFields[0] || "[]");
+                if (linked.length > 0) inkDeviceId = linked[0];
+            } catch (_) {}
+        }
+
         return jsonResponse({
             authenticated: !!session,
             username:      session ? session.username : null,
-            token:         session ? session.token    : null
+            token:         session ? session.token    : null,
+            ink_device_id: inkDeviceId
         }, 200, corsHeaders);
     } catch (err) {
         return jsonResponse({ authenticated: false, message: `Session lookup failed: ${err.message}` }, 500, corsHeaders);

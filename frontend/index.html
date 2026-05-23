@@ -949,7 +949,12 @@
         }
 
         function restoreUserSession(callback) {
-            fetch(apiBase + "/api/session", {
+            var storedToken = null;
+            try { storedToken = localStorage.getItem("inkchat_session_token"); } catch(e) {}
+            var sessionUrl = apiBase + "/api/session";
+            if (storedToken) sessionUrl += "?token=" + encodeURIComponent(storedToken);
+
+            fetch(sessionUrl, {
                 method: "GET",
                 credentials: "include"
             })
@@ -959,7 +964,13 @@
             .then(function(data) {
                 if (data && data.authenticated && data.username) {
                     activeUserId = data.username;
-                    if (data.token) activeSessionToken = data.token;
+                    if (data.token) {
+                        activeSessionToken = data.token;
+                        try { localStorage.setItem("inkchat_session_token", data.token); } catch(e) {}
+                    }
+                    if (data.ink_device_id) {
+                        try { localStorage.setItem("ink_device_id", data.ink_device_id); } catch(e) {}
+                    }
                     callback(true);
                 } else {
                     activeUserId = null;
@@ -1140,11 +1151,10 @@
                     } else if (response && response.status === "SUCCESS") {
                         activeUserId = response.username;
                         activeSessionToken = response.token || null;
-                        
-                        if (response.ink_device_id) {
-                            localStorage.setItem("ink_device_id", response.ink_device_id);
-                        }
-                        
+                        try {
+                            if (response.token) localStorage.setItem("inkchat_session_token", response.token);
+                            if (response.ink_device_id) localStorage.setItem("ink_device_id", response.ink_device_id);
+                        } catch(e) {}
                         document.getElementById("authOverlay").style.display = "none";
                         initializeChatWorkspace();
                     }
@@ -1159,11 +1169,10 @@
                         activeUserId = response.username;
                         activeSessionToken = response.token || null;
                         localStorage.setItem("inkchat_has_registered", "true");
-                        
-                        if (response.ink_device_id) {
-                            localStorage.setItem("ink_device_id", response.ink_device_id);
-                        }
-                        
+                        try {
+                            if (response.token) localStorage.setItem("inkchat_session_token", response.token);
+                            if (response.ink_device_id) localStorage.setItem("ink_device_id", response.ink_device_id);
+                        } catch(e) {}
                         document.getElementById("authOverlay").style.display = "none";
                         initializeChatWorkspace();
                     }
@@ -1530,6 +1539,7 @@
         }
 
         function handleSignOut() {
+            try { localStorage.removeItem("inkchat_session_token"); } catch(e) {}
             fetch(apiBase + "/api/logout", {
                 method: "POST",
                 credentials: "include",
