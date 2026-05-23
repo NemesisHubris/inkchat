@@ -12,11 +12,12 @@
 
 (function () {
     // Top-Level Configuration
-    var isLocal = window.location.hostname === "localhost" || 
-                  window.location.hostname === "127.0.0.1" || 
+    var isLocal = window.location.hostname === "localhost" ||
+                  window.location.hostname === "127.0.0.1" ||
                   window.location.protocol === "file:";
+    var localHost = window.location.hostname === "127.0.0.1" ? "127.0.0.1" : "localhost";
     var CONFIG = {
-        apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev",
+        apiBase: isLocal ? ("http://" + localHost + ":8787") : "https://slatechat-proxy.kindlemodshelf.workers.dev",
         cookieName: "ink_device_id",
         currentUserId: null
     };
@@ -337,7 +338,7 @@
         var isLocalhost = false;
         try {
             var hostname = window.location.hostname;
-            if (hostname === "localhost" || hostname === "127.0.0.1") {
+            if (hostname === "localhost" || hostname === "127.0.0.1" || window.location.protocol === "file:") {
                 isLocalhost = true;
             }
         } catch (e) {}

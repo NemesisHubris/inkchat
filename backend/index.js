@@ -9,6 +9,7 @@
 
 const ALLOWED_ORIGINS = [
     "https://chat.kindlemodshelf.me",
+    "https://inkchat.kindlemodshelf.workers.dev",
     "http://localhost:8000"
 ];
 const USER_SESSION_COOKIE       = "inkchat_session";
@@ -822,7 +823,8 @@ async function handleSessionInfo(request, env, corsHeaders) {
         const session = await getUserSession(request, env);
         return jsonResponse({
             authenticated: !!session,
-            username:      session ? session.username : null
+            username:      session ? session.username : null,
+            token:         session ? session.token    : null
         }, 200, corsHeaders);
     } catch (err) {
         return jsonResponse({ authenticated: false, message: `Session lookup failed: ${err.message}` }, 500, corsHeaders);

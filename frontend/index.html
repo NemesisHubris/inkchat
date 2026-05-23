@@ -542,12 +542,12 @@
                 <span class="title-text">Terms of Use</span>
             </div>
             <div class="modal-body">
-                <div style="font-size: 12px; line-height: 1.5; max-height: 250px; overflow-y: auto; border: 2px solid #000000; padding: 10px; background: #fafafa; margin-bottom: 15px;">
-                    <p style="font-weight: bold; margin-bottom: 8px;">By using InkChat, you agree to these rules. Violation triggers immutable hardware lockout.</p>
-                    <p style="margin-bottom: 6px;"><strong>Kindle Only:</strong> Strictly for genuine Kindle e-ink terminals. Emulators and bots are prohibited.</p>
-                    <p style="margin-bottom: 6px;"><strong>Respect the Room:</strong> No harassment or physical threat vectors. Monitored by edge safety AI.</p>
-                    <p style="margin-bottom: 6px;"><strong>Don't Flood:</strong> 1-second dynamic send cooldown enforced.</p>
-                    <p><strong>Administration:</strong> Operators reserve unilateral right to revoke hardware access tokens.</p>
+                <div style="font-size: 12px; line-height: 1.6; max-height: 250px; overflow-y: auto; border: 2px solid #000000; padding: 10px; background: #fafafa; margin-bottom: 15px;">
+                    <p style="font-weight: bold; margin-bottom: 10px;">By using InkChat you agree to these rules:</p>
+                    <p style="margin-bottom: 8px;"><strong>Be respectful.</strong> No harassment, threats, or insults toward other users.</p>
+                    <p style="margin-bottom: 8px;"><strong>No spam.</strong> Don't send the same message over and over or flood the chat.</p>
+                    <p style="margin-bottom: 8px;"><strong>No advertising.</strong> Don't promote products, services, or other sites.</p>
+                    <p><strong>We can remove you.</strong> If you break the rules we can ban your account. That decision is final.</p>
                 </div>
                 <button class="sys-btn" style="float: right;" onclick="hideTosModal();">Close</button>
             </div>
@@ -604,6 +604,7 @@
                         <button type="button" onclick="cancelActiveReply();" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: 2px solid #000000; padding: 2px 6px; font-size: 10px; font-weight: bold; cursor: pointer; text-transform: uppercase;">Cancel</button>
                     </div>
                     
+                    <div id="sendError" style="display:none; padding: 6px 12px; font-size: 12px; font-weight: bold; background: #000000; color: #ffffff; border: 2px solid #000000; text-align: center;"></div>
                     <div class="input-area">
                         <textarea id="messageInput" class="chat-textarea" placeholder="Type a message to transmit..." disabled autocomplete="off"></textarea>
                         <button id="sendBtn" type="submit" class="chat-send-btn" disabled>Send</button>
@@ -724,7 +725,8 @@
         var isLocal = window.location.hostname === "localhost" ||
                       window.location.hostname === "127.0.0.1" ||
                       window.location.protocol === "file:";
-        var apiBase = isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev";
+        var localHost = window.location.hostname === "127.0.0.1" ? "127.0.0.1" : "localhost";
+        var apiBase = isLocal ? ("http://" + localHost + ":8787") : "https://slatechat-proxy.kindlemodshelf.workers.dev";
         var activeUserId = null;
         var activeSessionToken = null;
         var activeDeviceFingerprint = null;
@@ -780,12 +782,11 @@
             document.getElementById("rulesModal").style.display = "flex";
         }
         function closeRulesModal() {
+            localStorage.setItem("inkchat_rules_accepted", "true");
             document.getElementById("rulesModal").style.display = "none";
         }
         function acceptRules() {
-            localStorage.setItem("inkchat_rules_accepted", "true");
             closeRulesModal();
-            showNotice("Rules Accepted");
         }
 
         // E-INK ZERO-SCROLL INBOX NAVIGATION
@@ -958,6 +959,7 @@
             .then(function(data) {
                 if (data && data.authenticated && data.username) {
                     activeUserId = data.username;
+                    if (data.token) activeSessionToken = data.token;
                     callback(true);
                 } else {
                     activeUserId = null;
@@ -1007,13 +1009,13 @@
                 } else {
                     var hasRegisteredFlag = localStorage.getItem("inkchat_has_registered") === "true";
                     if (hasRegisteredFlag) {
+                        // Hide the tab bar entirely — just show the login form
+                        var authTabs = document.querySelector(".auth-tabs");
+                        if (authTabs) authTabs.style.display = "none";
                         var tabRegister = document.getElementById("tabRegister");
-                        var authNotice = document.getElementById("authNotice");
                         if (tabRegister) tabRegister.style.display = "none";
-                        if (authNotice) {
-                            authNotice.textContent = "An account is already linked to this browser. Please use the Login form to continue.";
-                            authNotice.style.display = "block";
-                        }
+                        var authBtn = document.getElementById("authBtn");
+                        if (authBtn) authBtn.textContent = "Log In";
                     }
                     document.getElementById("authOverlay").style.display = "flex";
                 }
@@ -1047,16 +1049,9 @@
                     return;
                 }
 
-                var authOverlay = document.getElementById("authOverlay");
-                var authNotice = document.getElementById("authNotice");
-                if (authNotice) {
-                    authNotice.textContent = "Device bootstrap stalled. Reload the page after the local backend is configured.";
-                    authNotice.style.display = "block";
-                }
-                if (authOverlay) {
-                    authOverlay.style.display = "flex";
-                }
-            }, 1500);
+                // Telemetry timed out — just proceed with session restore directly
+                handleInkDeviceReady("fallback-signature");
+            }, 2000);
         }
 
         beginBootstrapWatchdog();
@@ -1441,6 +1436,18 @@
             });
         }
 
+        // INLINE SEND ERROR DISPLAY
+        function showSendError(msg) {
+            var el = document.getElementById("sendError");
+            if (!el) return;
+            el.textContent = msg;
+            el.style.display = "block";
+            if (window.sendErrorTimeoutId) clearTimeout(window.sendErrorTimeoutId);
+            window.sendErrorTimeoutId = setTimeout(function() {
+                el.style.display = "none";
+            }, 4000);
+        }
+
         // SYSTEM NOTICES
         function showNotice(text) {
             var notice = document.getElementById("tempNotice");
@@ -1496,21 +1503,19 @@
                     sendBtn.disabled = false;
 
                     if (err) {
-                        if (err.status === 429) {
-                            showNotice("Slow down! Chat moving too fast.");
-                        } else if (err.status === 409) {
-                            showNotice("Duplicate message blocked.");
-                        } else {
-                            alert("Transmission dropped: " + err.message);
-                        }
+                        var errMsg = err.status === 429 ? "Slow down — wait a moment before sending again." :
+                                     err.status === 409 ? "You already sent that message." :
+                                     "Send failed. Try again.";
+                        showSendError(errMsg);
                         return;
                     }
 
                     if (response && response.status === "ERROR") {
-                        alert(response.message || "Message blocked by filter regulations.");
+                        showSendError(response.message || "Message blocked.");
                         return;
                     }
 
+                    document.getElementById("sendError").style.display = "none";
                     cancelActiveReply();
                     input.value = "";
                     pollMessages();
