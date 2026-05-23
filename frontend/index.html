@@ -388,6 +388,20 @@
             transform: translate(2px, 2px);
         }
 
+        .chat-send-btn:disabled {
+            background-color: #e0e0e0;
+            color: #888888;
+            border-color: #888888;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .chat-textarea:disabled {
+            background-color: #f0f0f0;
+            color: #888888;
+            cursor: not-allowed;
+        }
+
         /* Unused picker styles removed */
 
         /* HIGH CONTRAST RETRO SYSTEM OVERLAYS */
@@ -1502,41 +1516,63 @@
             var text = input.value.trim();
             if (!text) return false;
 
-            // Clear immediately so the field is always empty after submit
+            // Prevent double-submit
+            if (sendBtn.disabled) return false;
+
+            // Clear field immediately and lock UI
             input.value = "";
             input.disabled = true;
             sendBtn.disabled = true;
+            sendBtn.textContent = "...";
 
-            if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
-                var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
-                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
-                    input.disabled = false;
-                    sendBtn.disabled = false;
-
-                    if (err) {
-                        var errMsg = err.status === 429 ? "Slow down — wait a moment before sending again." :
-                                     err.status === 409 ? "Already sent — type something new." :
-                                     "Send failed. Try again.";
-                        // Restore text for retriable errors so user doesn't have to retype
-                        if (err.status !== 409) input.value = text;
-                        showSendError(errMsg);
-                        return;
-                    }
-
-                    if (response && response.status === "ERROR") {
-                        input.value = text;
-                        showSendError(response.message || "Message blocked.");
-                        return;
-                    }
-
-                    document.getElementById("sendError").style.display = "none";
-                    cancelActiveReply();
-                    pollMessages();
-                    input.focus();
-                });
-            } else {
+            // Layer 1: safety timeout — unlock UI unconditionally after 10s
+            var unlockTimer = setTimeout(function() {
                 input.disabled = false;
                 sendBtn.disabled = false;
+                sendBtn.textContent = "Send";
+            }, 10000);
+
+            function unlock() {
+                clearTimeout(unlockTimer);
+                input.disabled = false;
+                sendBtn.disabled = false;
+                sendBtn.textContent = "Send";
+            }
+
+            if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
+                // Layer 2: try-catch so a thrown exception still unlocks the UI
+                try {
+                    var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
+                    window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
+                        unlock();
+
+                        if (err) {
+                            var errMsg = err.status === 429 ? "Slow down — wait a moment before sending again." :
+                                         err.status === 409 ? "Already sent — type something new." :
+                                         "Send failed. Try again.";
+                            if (err.status !== 409) input.value = text;
+                            showSendError(errMsg);
+                            return;
+                        }
+
+                        if (response && response.status === "ERROR") {
+                            input.value = text;
+                            showSendError(response.message || "Message blocked.");
+                            return;
+                        }
+
+                        document.getElementById("sendError").style.display = "none";
+                        cancelActiveReply();
+                        pollMessages();
+                        input.focus();
+                    });
+                } catch (e) {
+                    // Layer 3: if sendMessage itself throws, still unlock
+                    unlock();
+                    showSendError("Send failed. Try again.");
+                }
+            } else {
+                unlock();
             }
 
             return false;
