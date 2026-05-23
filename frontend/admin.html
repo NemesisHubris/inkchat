@@ -3,1174 +3,867 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Operational Control Center</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <title>InkChat Admin</title>
     <style>
-        :root {
-            --bg-color: #0b0f17;
-            --card-bg: rgba(20, 25, 35, 0.85);
-            --border-color: rgba(48, 54, 61, 0.7);
-            --accent-purple: #8b5cf6;
-            --accent-blue: #3b82f6;
-            --royal-red: #ef4444;
-            --text-primary: #f0f6fc;
-            --text-secondary: #8b949e;
-            --glow-color: rgba(139, 92, 246, 0.15);
-        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+        :root {
+            --bg:       #0d1117;
+            --surface:  #161b22;
+            --border:   #30363d;
+            --text:     #e6edf3;
+            --muted:    #8b949e;
+            --red:      #f85149;
+            --green:    #3fb950;
+            --blue:     #58a6ff;
+            --yellow:   #d29922;
+            --purple:   #a371f7;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
+            font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* ── Login ── */
+        #auth-screen {
             display: flex;
-            justify-content: center;
             align-items: center;
-            overflow-x: hidden;
-            background-image: radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.05) 0%, transparent 40%),
-                              radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 40%);
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
         }
-
-        /* Access Gate Modal (Login) */
-        .auth-gate {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+        .login-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
             width: 100%;
-            max-width: 420px;
-            padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.5);
-            text-align: center;
-            animation: fadeIn 0.6s ease-out;
+            max-width: 360px;
+            padding: 32px;
         }
-
-        .auth-gate h1 {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 800;
-            font-size: 26px;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        .login-box h1 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--text);
+            letter-spacing: 0.3px;
         }
+        .login-box p { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
 
-        .auth-gate p {
-            font-size: 14px;
-            color: var(--text-secondary);
-            margin-bottom: 30px;
-        }
-
-        .input-group {
-            margin-bottom: 24px;
-            text-align: left;
-        }
-
-        .input-group label {
+        /* ── Form elements ── */
+        .field-label {
             display: block;
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 6px;
         }
-
         .admin-input {
             width: 100%;
-            padding: 14px;
-            background: rgba(10, 12, 18, 0.9);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            border-radius: 8px;
-            font-size: 15px;
-            transition: all 0.3s ease;
-        }
-
-        .admin-input:focus {
-            outline: none;
-            border-color: var(--accent-purple);
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
-        }
-
-        .admin-btn {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
-            border: none;
-            color: #ffffff;
-            font-weight: bold;
-            font-size: 15px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .admin-btn:hover {
-            opacity: 0.95;
-            box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
-            transform: translateY(-1px);
-        }
-
-        .admin-btn:active {
-            transform: translateY(1px);
-        }
-
-        .auth-error {
-            color: var(--royal-red);
+            padding: 8px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font: inherit;
             font-size: 13px;
-            margin-top: 18px;
-            font-weight: 500;
-            display: none;
-            background: rgba(239, 68, 68, 0.1);
-            padding: 10px;
-            border-radius: 6px;
-            border: 1px solid rgba(239, 68, 68, 0.2);
+            outline: none;
+            margin-bottom: 16px;
         }
+        .admin-input:focus { border-color: var(--blue); }
+        .admin-input::placeholder { color: var(--muted); }
 
-        /* Dashboard Container */
-        .dashboard-container {
-            width: 100%;
-            max-width: 1400px;
-            margin: 40px auto;
-            animation: fadeIn 0.6s ease-out;
-            display: none; /* Hidden by default */
-        }
-
-        .dash-header {
-            display: flex;
-            justify-content: space-between;
+        .btn {
+            display: inline-flex;
             align-items: center;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-
-        .dash-header h1 {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 800;
-            font-size: 30px;
-            letter-spacing: 0.5px;
-            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .status-badge {
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid var(--accent-blue);
-            color: var(--accent-blue);
-            padding: 6px 14px;
-            border-radius: 20px;
+            justify-content: center;
+            padding: 7px 14px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
             font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn:hover { border-color: var(--blue); color: var(--blue); }
+        .btn:active { opacity: 0.7; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-primary { background: var(--blue); border-color: var(--blue); color: #000; }
+        .btn-primary:hover { opacity: 0.85; color: #000; }
+        .btn-danger  { background: transparent; border-color: var(--red); color: var(--red); }
+        .btn-danger:hover  { background: var(--red); color: #fff; }
+        .btn-warn    { background: transparent; border-color: var(--yellow); color: var(--yellow); }
+        .btn-warn:hover    { background: var(--yellow); color: #000; }
+        .btn-muted   { background: transparent; border-color: var(--purple); color: var(--purple); }
+        .btn-muted:hover   { background: var(--purple); color: #fff; }
+        .btn-full    { width: 100%; }
+        .btn-sm      { padding: 4px 10px; font-size: 11px; }
+
+        .error-msg {
+            display: none;
+            padding: 8px 10px;
+            border: 1px solid var(--red);
+            background: rgba(248, 81, 73, 0.08);
+            color: var(--red);
+            font-size: 12px;
+            margin-top: 12px;
+        }
+
+        /* ── Dashboard ── */
+        #dashboard {
+            display: none;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .top-bar {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .top-bar-left { display: flex; align-items: center; gap: 12px; }
+        .top-bar h1 { font-size: 14px; font-weight: 700; letter-spacing: 0.5px; }
+        .session-pill {
+            padding: 2px 8px;
+            border: 1px solid var(--green);
+            color: var(--green);
+            font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
-        .dash-grid {
+        .main-grid {
+            flex: 1;
             display: grid;
-            grid-template-columns: 1fr 1.2fr 1fr;
-            gap: 25px;
+            grid-template-columns: 320px 1fr 280px;
+            gap: 0;
+            overflow: hidden;
         }
 
-        .panel {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(12px);
-        }
-
-        .panel-title {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 600;
-            font-size: 20px;
-            margin-bottom: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 10px;
-        }
-
-        /* Search Section */
-        .search-row {
+        .col {
+            border-right: 1px solid var(--border);
             display: flex;
-            gap: 12px;
-            margin-bottom: 30px;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .col:last-child { border-right: none; }
+
+        .col-header {
+            flex-shrink: 0;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
-        /* Results Display Card */
-        .result-card {
-            background: rgba(10, 12, 18, 0.6);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 24px;
-            display: none;
-            animation: fadeIn 0.4s ease-out;
+        .col-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
         }
+        .col-body::-webkit-scrollbar { width: 4px; }
+        .col-body::-webkit-scrollbar-thumb { background: var(--border); }
 
-        .user-header-status {
+        /* ── User lookup ── */
+        .search-row { display: flex; gap: 6px; margin-bottom: 14px; }
+        .search-row .admin-input { margin-bottom: 0; flex: 1; }
+
+        .user-card { display: none; }
+
+        .user-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .user-card-name { font-size: 15px; font-weight: 700; }
+        .tag {
+            padding: 2px 7px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid;
+        }
+        .tag-active  { border-color: var(--green);  color: var(--green); }
+        .tag-banned  { border-color: var(--red);    color: var(--red); }
+        .tag-muted   { border-color: var(--yellow); color: var(--yellow); }
+
+        .stat-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 14px;
-            margin-bottom: 18px;
-        }
-
-        .username-title {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 600;
-            font-size: 20px;
-        }
-
-        .user-status-tag {
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .status-active {
-            background: rgba(16, 185, 129, 0.1);
-            color: #10b981;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-
-        .status-banned {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--royal-red);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-        }
-
-        .data-section {
-            margin-bottom: 24px;
-        }
-
-        .data-section h4 {
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(48,54,61,0.5);
             font-size: 12px;
-            font-weight: 600;
+        }
+        .stat-label { color: var(--muted); }
+        .stat-val   { font-weight: 600; font-family: inherit; }
+
+        .section-title {
+            font-size: 10px;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: var(--text-secondary);
+            color: var(--muted);
+            margin: 12px 0 6px;
+        }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            margin-bottom: 4px;
+            gap: 8px;
+        }
+        .list-item-main { flex: 1; min-width: 0; }
+        .list-item-addr { font-size: 12px; font-family: inherit; }
+        .list-item-geo  { font-size: 11px; color: var(--muted); margin-top: 1px; }
+        .list-item-hash { font-size: 11px; word-break: break-all; color: var(--muted); }
+
+        .action-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
+        /* ── Chat feed ── */
+        #chat-feed {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        #chat-feed::-webkit-scrollbar { width: 4px; }
+        #chat-feed::-webkit-scrollbar-thumb { background: var(--border); }
+
+        .chat-msg {
+            padding: 8px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-left: 2px solid var(--border);
+        }
+        .chat-msg.admin-msg { border-left-color: var(--purple); }
+        .chat-msg-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+        .chat-msg-user { font-weight: 700; font-size: 12px; }
+        .chat-msg-user.admin-user { color: var(--purple); }
+        .chat-msg-time { font-size: 10px; color: var(--muted); }
+        .chat-msg-text { font-size: 13px; word-break: break-word; }
+        .chat-msg-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+        .chat-input-bar {
+            flex-shrink: 0;
+            display: flex;
+            gap: 6px;
+            padding: 10px 14px;
+            border-top: 1px solid var(--border);
+        }
+        .chat-input-bar .admin-input { margin-bottom: 0; flex: 1; }
+
+        /* ── Quick actions ── */
+        .ban-tabs {
+            display: flex;
+            gap: 4px;
             margin-bottom: 12px;
         }
-
-        .data-list {
-            list-style: none;
-        }
-
-        .data-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: rgba(20, 25, 35, 0.4);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            margin-bottom: 8px;
-            font-family: monospace;
-            font-size: 13px;
-        }
-
-        .ban-btn-inline {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid var(--royal-red);
-            color: var(--royal-red);
-            padding: 5px 12px;
-            border-radius: 4px;
+        .ban-tab {
+            flex: 1;
+            padding: 6px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font: inherit;
             font-size: 11px;
-            font-weight: bold;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .ban-btn-inline:hover {
-            background: var(--royal-red);
-            color: #ffffff;
-            box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
-        }
-
-        /* Quick Ban Panel */
-        .ban-type-selector {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
-        .type-btn {
-            background: rgba(20, 25, 35, 0.6);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            transition: all 0.3s ease;
             text-align: center;
         }
+        .ban-tab.active { border-color: var(--red); color: var(--red); background: rgba(248,81,73,0.08); }
 
-        .type-btn.active {
-            border-color: var(--accent-purple);
-            color: var(--text-primary);
-            background: rgba(139, 92, 246, 0.15);
-            box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
-        }
-
-        .console-log {
-            margin-top: 25px;
-            background: rgba(10, 12, 18, 0.85);
-            border: 1px solid var(--border-color);
-            font-family: 'Courier New', Courier, monospace;
-            padding: 15px;
-            border-radius: 8px;
+        /* ── Activity log ── */
+        #activity-log {
+            font-size: 11px;
+            color: var(--green);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 8px 10px;
             height: 180px;
             overflow-y: auto;
-            font-size: 12px;
-            color: #00ff66;
-            line-height: 1.5;
-            text-shadow: 0 0 2px rgba(0, 255, 102, 0.3);
+            font-family: inherit;
+            line-height: 1.6;
         }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .no-data {
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-style: italic;
-        }
+        #activity-log::-webkit-scrollbar { width: 4px; }
+        #activity-log::-webkit-scrollbar-thumb { background: var(--border); }
     </style>
 </head>
 <body>
 
-    <!-- Administrative Password Gate Modal -->
-    <div id="authGate" class="auth-gate">
-        <h1>Operational Control Center</h1>
-        <p>Access limited strictly to verified administrative terminals.</p>
-        
-        <form onsubmit="return handleAdminAuth(event);">
-            <div class="input-group">
-                <label for="adminPassword">Security Code</label>
-                <input type="password" id="adminPassword" class="admin-input" placeholder="••••••••••••" required autocomplete="off">
-            </div>
-            
-            <button type="submit" class="admin-btn">Sign In</button>
-            <div id="authErrorMsg" class="auth-error"></div>
+<!-- ── Login ── -->
+<div id="auth-screen">
+    <div class="login-box">
+        <h1>InkChat Admin</h1>
+        <p>Restricted access. Admins only.</p>
+        <form onsubmit="return handleAdminAuth(event)">
+            <label class="field-label" for="adminPassword">Password</label>
+            <input type="password" id="adminPassword" class="admin-input" placeholder="••••••••" required autocomplete="off">
+            <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+            <div id="authErrorMsg" class="error-msg"></div>
         </form>
     </div>
+</div>
 
-    <!-- Main Administrative Operations Console -->
-    <div id="mainDashboard" class="dashboard-container">
-        <div class="dash-header">
-            <h1>InkChat Operations Command Center</h1>
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div class="status-badge">Secure Session Active</div>
-                <button class="ban-btn-inline" style="padding: 8px 12px;" onclick="endAdminSession();">End Session</button>
-            </div>
+<!-- ── Dashboard ── -->
+<div id="dashboard">
+
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <h1>InkChat Admin</h1>
+            <div class="session-pill">Session Active</div>
         </div>
-        
-        <div class="dash-grid">
-            <!-- Left investigative terminal -->
-            <div class="panel">
-                <div class="panel-title">Username Investigation Node</div>
-                
-                <div class="search-row">
-                    <input type="text" id="lookupUser" class="admin-input" placeholder="Search account ID..." autocomplete="off">
-                    <button class="admin-btn" style="width: auto; padding: 0 25px;" onclick="investigateUser();">Investigate</button>
-                </div>
-                
-                <div id="resultCard" class="result-card">
-                    <div class="user-header-status">
-                        <span id="resUsername" class="username-title"></span>
-                        <span id="resStatus" class="user-status-tag"></span>
-                    </div>
-                    
-                    <div class="data-section">
-                        <h4>Account Authentication Status</h4>
-                        <div class="data-item" style="font-family: inherit;">
-                            <span id="sessionCountLabel">Credential integrity verified. Active sessions: 0</span>
-                            <button id="banAccountBtn" class="ban-btn-inline" style="padding: 6px 12px;">BAN ACCOUNT</button>
-                        </div>
-                    </div>
-                    
-                    <div class="data-section">
-                        <h4>Linked Hardware Nodes</h4>
-                        <ul id="resDevices" class="data-list"></ul>
-                    </div>
-                    
-                    <div class="data-section">
-                        <h4>Linked Network IPs</h4>
-                        <ul id="resIps" class="data-list"></ul>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Center Live Chat Hub panel -->
-            <div class="panel" style="display: flex; flex-direction: column; min-height: 480px;">
-                <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 10px; margin-bottom: 20px;">
-                    <span>Live Admin Chat Hub</span>
-                    <button class="admin-btn" style="width: auto; padding: 4px 10px; font-size: 11px; background: var(--royal-red); font-weight: bold; text-transform: uppercase;" onclick="purgeAllMessagesConfirm();">Purge Logs</button>
-                </div>
-                
-                <div id="adminChatBox" style="border: 1px solid var(--border-color); flex-grow: 1; height: 350px; overflow-y: auto; padding: 15px; background: rgba(10, 12, 18, 0.4); border-radius: 8px; margin-bottom: 15px;"></div>
-                
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" id="adminChatMessage" class="admin-input" placeholder="Type admin message..." onkeydown="if(event.keyCode===13) transmitAdminMessage();" autocomplete="off">
-                    <button class="admin-btn" style="width: auto; padding: 0 20px;" onclick="transmitAdminMessage();">Send</button>
-                </div>
-            </div>
-            
-            <!-- Right quick ban console -->
-            <div class="panel">
-                <div class="panel-title">Instant Ban Core</div>
-                
-                <div class="ban-type-selector">
-                    <button id="typeAccount" class="type-btn active" onclick="setBanType('account')">Account</button>
-                    <button id="typeDevice" class="type-btn" onclick="setBanType('device')">Device</button>
-                    <button id="typeIp" class="type-btn" onclick="setBanType('ip')">Network IP</button>
-                </div>
-                
-                <div class="input-group">
-                    <label id="targetLabel" for="banTarget">Target Username</label>
-                    <input type="text" id="banTarget" class="admin-input" placeholder="Input target..." autocomplete="off">
-                </div>
-                
-                <button class="admin-btn" style="background: var(--royal-red);" onclick="executeBanDirect();">Execute Lockout</button>
-                
-                <div id="consoleLog" class="console-log" style="height: 200px;">
-                    &gt; Operations Console Initialized...<br>
-                    &gt; Administrative session monitoring active.
-                </div>
-            </div>
-        </div>
+        <button class="btn btn-danger btn-sm" onclick="endAdminSession()">Sign Out</button>
     </div>
 
-    <script type="text/javascript">
-        var adminToken = "";
-        var activeBanType = "account";
-        var isLocal = window.location.hostname === "localhost" || 
-                      window.location.hostname === "127.0.0.1" || 
-                      window.location.protocol === "file:";
-        var CONFIG = {
-            apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev"
-        };
-        var adminChatIntervalId = null;
+    <div class="main-grid">
 
-        function logToConsole(message) {
-            var log = document.getElementById("consoleLog");
-            var date = new Date();
-            var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            var line = document.createElement("div");
-            line.textContent = "> [" + timeStr + "] " + message;
-            log.appendChild(line);
-            log.scrollTop = log.scrollHeight;
-        }
+        <!-- Left: User lookup -->
+        <div class="col">
+            <div class="col-header">User Lookup</div>
+            <div class="col-body">
+                <div class="search-row">
+                    <input type="text" id="lookupUser" class="admin-input" placeholder="Username…" autocomplete="off"
+                        onkeydown="if(event.keyCode===13) investigateUser()">
+                    <button class="btn" onclick="investigateUser()">Look up</button>
+                </div>
 
-        window.onload = function() {
-            restoreAdminSession();
-        };
+                <div id="resultCard" class="user-card">
+                    <div class="user-card-header">
+                        <span id="resUsername" class="user-card-name"></span>
+                        <span id="resStatus" class="tag"></span>
+                    </div>
 
-        function buildAdminHeaders(extra) {
-            var headers = extra || {};
-            if (adminToken) {
-                headers["X-Admin-Token"] = adminToken;
+                    <div class="stat-row">
+                        <span class="stat-label">Active sessions</span>
+                        <span id="sessionCount" class="stat-val">0</span>
+                    </div>
+
+                    <div class="section-title">Linked Devices</div>
+                    <div id="resDevices"></div>
+
+                    <div class="section-title">Linked IPs</div>
+                    <div id="resIps"></div>
+
+                    <div class="action-row" id="userActions">
+                        <button id="banAccountBtn"     class="btn btn-danger btn-sm">Ban Account</button>
+                        <button id="muteAccountBtn"    class="btn btn-warn btn-sm">Mute</button>
+                        <button id="resetPasswordBtn"  class="btn btn-muted btn-sm">Reset Password</button>
+                        <button id="revokeSessionsBtn" class="btn btn-sm">Revoke Sessions</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Chat feed -->
+        <div class="col" style="border-right:none;">
+            <div class="col-header">
+                <span>Live Chat</span>
+                <button class="btn btn-danger btn-sm" onclick="purgeAllMessagesConfirm()">Purge All</button>
+            </div>
+            <div id="chat-feed"></div>
+            <div class="chat-input-bar">
+                <input type="text" id="adminChatMessage" class="admin-input"
+                    placeholder="Send as Admin…"
+                    onkeydown="if(event.keyCode===13) transmitAdminMessage()"
+                    autocomplete="off">
+                <button class="btn btn-primary" onclick="transmitAdminMessage()">Send</button>
+            </div>
+        </div>
+
+        <!-- Right: Quick ban + log -->
+        <div class="col">
+            <div class="col-header">Quick Ban</div>
+            <div class="col-body" style="display:flex;flex-direction:column;gap:0;">
+                <div class="ban-tabs">
+                    <button id="typeAccount" class="ban-tab active" onclick="setBanType('account')">Account</button>
+                    <button id="typeDevice"  class="ban-tab"        onclick="setBanType('device')">Device</button>
+                    <button id="typeIp"      class="ban-tab"        onclick="setBanType('ip')">IP</button>
+                </div>
+
+                <label id="targetLabel" class="field-label">Username</label>
+                <input type="text" id="banTarget" class="admin-input" placeholder="Target…" autocomplete="off">
+                <button class="btn btn-danger btn-full" onclick="executeBanDirect()">Ban</button>
+
+                <div class="section-title" style="margin-top:16px;">Activity Log</div>
+                <div id="activity-log">&gt; Admin session started.</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    var adminToken = "";
+    var activeBanType = "account";
+    var isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    var API = isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev";
+    var chatPollId = null;
+    var lastMsgHash = "";
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+
+    window.onload = function() { restoreAdminSession(); };
+
+    function buildHeaders(extra) {
+        var h = Object.assign({ "Content-Type": "application/json" }, extra || {});
+        if (adminToken) h["X-Admin-Token"] = adminToken;
+        return h;
+    }
+
+    function restoreAdminSession() {
+        fetch(API + "/api/admin/session", { method: "GET", credentials: "include" })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { if (d && d.authenticated) showDashboard(); })
+            .catch(function() {});
+    }
+
+    function handleAdminAuth(e) {
+        if (e.preventDefault) e.preventDefault();
+        var pass = document.getElementById("adminPassword").value;
+        var err  = document.getElementById("authErrorMsg");
+        err.style.display = "none";
+
+        fetch(API + "/api/admin/login", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: pass })
+        })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (r.status !== 200) throw new Error(d.message || "Wrong password.");
+                return d;
+            });
+        })
+        .then(function(d) {
+            if (d.status === "SUCCESS") {
+                adminToken = d.token || "";
+                showDashboard();
+                log("Signed in.");
+            } else {
+                throw new Error("Login failed.");
             }
-            return headers;
-        }
+        })
+        .catch(function(e) {
+            err.textContent = e.message;
+            err.style.display = "block";
+        });
+        return false;
+    }
 
-        function showAdminDashboard() {
-            if (adminChatIntervalId) {
-                clearInterval(adminChatIntervalId);
-                adminChatIntervalId = null;
+    function showDashboard() {
+        document.getElementById("auth-screen").style.display  = "none";
+        document.getElementById("dashboard").style.display    = "flex";
+        startChatPoll();
+    }
+
+    function endAdminSession() {
+        fetch(API + "/api/logout", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminToken: adminToken })
+        }).finally(function() { location.reload(); });
+    }
+
+    // ── Activity log ──────────────────────────────────────────────────────────
+
+    function log(msg) {
+        var el = document.getElementById("activity-log");
+        var t  = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        var line = document.createElement("div");
+        line.textContent = "> [" + t + "] " + msg;
+        el.appendChild(line);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    // ── User lookup ───────────────────────────────────────────────────────────
+
+    function investigateUser() {
+        var u = document.getElementById("lookupUser").value.trim();
+        if (!u) return;
+        fetch(API + "/api/admin/user-lookup?username=" + encodeURIComponent(u), {
+            method: "GET", credentials: "include", headers: buildHeaders({})
+        })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (r.status !== 200) throw new Error(d.message || "Lookup failed.");
+                return d;
+            });
+        })
+        .then(function(d) {
+            if (d.status === "SUCCESS") { renderUser(d); log("Looked up: " + u); }
+            else throw new Error("Unexpected response.");
+        })
+        .catch(function(e) { log("Error: " + e.message); alert(e.message); });
+    }
+
+    function renderUser(d) {
+        document.getElementById("resUsername").textContent = d.username;
+        document.getElementById("sessionCount").textContent = d.activeSessions || 0;
+
+        var st = document.getElementById("resStatus");
+        st.textContent  = d.banned ? "Banned" : "Active";
+        st.className    = "tag " + (d.banned ? "tag-banned" : "tag-active");
+
+        // Devices
+        var devEl = document.getElementById("resDevices");
+        devEl.innerHTML = "";
+        if (!d.linkedDevices || !d.linkedDevices.length) {
+            devEl.innerHTML = "<div style='color:var(--muted);font-size:12px;'>None</div>";
+        } else {
+            for (var i = 0; i < d.linkedDevices.length; i++) {
+                var dev = d.linkedDevices[i];
+                var row = document.createElement("div");
+                row.className = "list-item";
+                var span = document.createElement("span");
+                span.className = "list-item-hash";
+                span.title = dev;
+                span.textContent = dev.substring(0, 20) + "…";
+                var btn = document.createElement("button");
+                btn.className = "btn btn-danger btn-sm";
+                btn.textContent = "Ban";
+                (function(dd) {
+                    btn.onclick = function() {
+                        if (confirm("Ban device fingerprint: " + dd + "?")) banTarget("device", dd);
+                    };
+                })(dev);
+                row.appendChild(span);
+                row.appendChild(btn);
+                devEl.appendChild(row);
             }
-            document.getElementById("authGate").style.display = "none";
-            document.getElementById("mainDashboard").style.display = "block";
-            initializeAdminChat();
         }
 
-        function restoreAdminSession() {
-            fetch(CONFIG.apiBase + "/api/admin/session", {
-                method: "GET",
-                credentials: "include"
-            })
-            .then(function(res) {
-                return res.json();
-            })
-            .then(function(data) {
-                if (data && data.authenticated) {
-                    showAdminDashboard();
-                    logToConsole("Administrator Session Restored from Secure Cookie.");
-                }
+        // IPs
+        var ipEl = document.getElementById("resIps");
+        ipEl.innerHTML = "";
+        if (!d.linkedIps || !d.linkedIps.length) {
+            ipEl.innerHTML = "<div style='color:var(--muted);font-size:12px;'>None</div>";
+        } else {
+            for (var j = 0; j < d.linkedIps.length; j++) {
+                var ipObj = d.linkedIps[j];
+                var geo   = ipObj.geo || {};
+                var geoStr = [geo.city, geo.region, geo.country].filter(Boolean).join(", ") || "Unknown location";
+                if (geo.org) geoStr += " · " + geo.org;
+
+                var row2 = document.createElement("div");
+                row2.className = "list-item";
+                row2.style.flexDirection = "column";
+                row2.style.alignItems    = "stretch";
+
+                var top = document.createElement("div");
+                top.style.cssText = "display:flex;justify-content:space-between;align-items:center;";
+                var addr = document.createElement("span");
+                addr.className = "list-item-addr";
+                addr.textContent = ipObj.ip;
+                var btn2 = document.createElement("button");
+                btn2.className = "btn btn-danger btn-sm";
+                btn2.textContent = "Ban IP";
+                (function(ip) {
+                    btn2.onclick = function() {
+                        if (confirm("Ban IP: " + ip + "?")) banTarget("ip", ip);
+                    };
+                })(ipObj.ip);
+                top.appendChild(addr);
+                top.appendChild(btn2);
+
+                var geoDiv = document.createElement("div");
+                geoDiv.className = "list-item-geo";
+                geoDiv.textContent = geoStr;
+
+                row2.appendChild(top);
+                row2.appendChild(geoDiv);
+                ipEl.appendChild(row2);
+            }
+        }
+
+        // Actions
+        var actions = document.getElementById("userActions");
+        actions.style.display = d.banned ? "none" : "flex";
+
+        document.getElementById("banAccountBtn").onclick = function() {
+            if (confirm("Permanently ban account \"" + d.username + "\"?")) banTarget("account", d.username);
+        };
+        document.getElementById("muteAccountBtn").onclick = function() { muteUserPrompt(d.username); };
+        document.getElementById("resetPasswordBtn").onclick = function() { resetUserPasswordPrompt(d.username); };
+        document.getElementById("revokeSessionsBtn").onclick = function() {
+            if (confirm("Revoke all sessions for \"" + d.username + "\"?")) revokeUserSessions(d.username);
+        };
+
+        document.getElementById("resultCard").style.display = "block";
+    }
+
+    // ── Ban ───────────────────────────────────────────────────────────────────
+
+    function setBanType(t) {
+        activeBanType = t;
+        ["account","device","ip"].forEach(function(id) {
+            document.getElementById("type" + id.charAt(0).toUpperCase() + id.slice(1)).className =
+                "ban-tab" + (id === t ? " active" : "");
+        });
+        var labels = { account: "Username", device: "Device Fingerprint", ip: "IP Address" };
+        var placeholders = { account: "e.g. bob", device: "Fingerprint hash…", ip: "e.g. 1.2.3.4" };
+        document.getElementById("targetLabel").textContent = labels[t];
+        document.getElementById("banTarget").placeholder  = placeholders[t];
+    }
+
+    function banTarget(type, target) {
+        fetch(API + "/api/admin/ban", {
+            method: "POST", credentials: "include",
+            headers: buildHeaders(),
+            body: JSON.stringify({ type: type, target: target })
+        })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (r.status !== 200) throw new Error(d.message || "Ban failed.");
+                return d;
+            });
+        })
+        .then(function(d) {
+            log(d.message || "Banned " + type + ": " + target);
+            investigateUser();
+        })
+        .catch(function(e) { log("Ban error: " + e.message); alert(e.message); });
+    }
+
+    function executeBanDirect() {
+        var target = document.getElementById("banTarget").value.trim();
+        if (!target) return;
+        if (confirm("Ban " + activeBanType + ": " + target + "?")) {
+            banTarget(activeBanType, target);
+            document.getElementById("banTarget").value = "";
+        }
+    }
+
+    // ── Mute ──────────────────────────────────────────────────────────────────
+
+    function muteUserPrompt(defaultUser) {
+        var u = prompt("Username to mute:", defaultUser || "");
+        if (!u) return;
+        var s = prompt("Mute duration in seconds (e.g. 300 = 5 min, 3600 = 1 hr):", "300");
+        if (!s) return;
+        var secs = parseInt(s, 10);
+        if (isNaN(secs) || secs <= 0) { alert("Invalid duration."); return; }
+        fetch(API + "/api/admin/mute-user", {
+            method: "POST", credentials: "include",
+            headers: buildHeaders(),
+            body: JSON.stringify({ username: u, durationSeconds: secs })
+        })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (r.status !== 200) throw new Error(d.message || "Mute failed.");
+                return d;
+            });
+        })
+        .then(function(d) { log("Muted " + u + " for " + secs + "s."); alert(d.message || "User muted."); })
+        .catch(function(e) { log("Mute error: " + e.message); alert(e.message); });
+    }
+
+    // ── Password reset ────────────────────────────────────────────────────────
+
+    function resetUserPasswordPrompt(u) {
+        var p = prompt("New password for \"" + u + "\" (min 4 chars):");
+        if (!p) return;
+        if (p.length < 4) { alert("Password too short."); return; }
+        fetch(API + "/api/admin/reset-password", {
+            method: "POST", credentials: "include",
+            headers: buildHeaders(),
+            body: JSON.stringify({ username: u, newPassword: p })
+        })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (r.status !== 200) throw new Error(d.message || "Reset failed.");
+                return d;
+            });
+        })
+        .then(function(d) { log("Reset password for " + u + "."); alert(d.message || "Password reset."); })
+        .catch(function(e) { log("Reset error: " + e.message); alert(e.message); });
+    }
+
+    // ── Revoke sessions ───────────────────────────────────────────────────────
+
+    function revokeUserSessions(u) {
+        fetch(API + "/api/admin/revoke-sessions", {
+            method: "POST", credentials: "include",
+            headers: buildHeaders(),
+            body: JSON.stringify({ username: u })
+        })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (r.status !== 200) throw new Error(d.message || "Revoke failed.");
+                return d;
+            });
+        })
+        .then(function(d) { log(d.message || "Revoked sessions for " + u); alert(d.message || "Done."); investigateUser(); })
+        .catch(function(e) { log("Revoke error: " + e.message); alert(e.message); });
+    }
+
+    // ── Chat ──────────────────────────────────────────────────────────────────
+
+    function startChatPoll() {
+        pollChat();
+        chatPollId = setInterval(pollChat, 4000);
+    }
+
+    function pollChat() {
+        fetch(API + "/api/get-messages", { method: "GET", credentials: "include" })
+            .then(function(r) { return r.json(); })
+            .then(function(msgs) {
+                if (!Array.isArray(msgs)) return;
+                var h = msgs.join("|");
+                if (h === lastMsgHash) return;
+                lastMsgHash = h;
+                renderChat(msgs.slice().reverse());
             })
             .catch(function() {});
-        }
+    }
 
-        function endAdminSession() {
-            fetch(CONFIG.apiBase + "/api/logout", {
-                method: "POST",
-                credentials: "include",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    adminToken: adminToken
-                })
-            })
-            .then(function() {
-                adminToken = "";
-                window.location.reload();
-            })
-            .catch(function() {
-                adminToken = "";
-                window.location.reload();
-            });
-        }
+    function renderChat(msgs) {
+        var feed = document.getElementById("chat-feed");
+        var atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+        feed.innerHTML = "";
+        for (var i = 0; i < msgs.length; i++) {
+            var m;
+            try { m = JSON.parse(msgs[i]); } catch(e) { continue; }
+            var isAdmin = m.role === "admin";
+            var t = new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-        function handleAdminAuth(event) {
-            if (event.preventDefault) event.preventDefault();
-            var pass = document.getElementById("adminPassword").value;
-            var errorMsg = document.getElementById("authErrorMsg");
-            errorMsg.style.display = "none";
+            var div = document.createElement("div");
+            div.className = "chat-msg" + (isAdmin ? " admin-msg" : "");
 
-            fetch(CONFIG.apiBase + "/api/admin/login", {
-                method: "POST",
-                credentials: "include",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ password: pass })
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    return res.json();
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Authentication rejected: Invalid credentials.");
-                    }).catch(function() {
-                        throw new Error("Authentication rejected: Invalid credentials.");
-                    });
-                }
-            })
-            .then(function(data) {
-                if (data && data.status === "SUCCESS") {
-                    adminToken = data.token || "";
-                    showAdminDashboard();
-                    logToConsole("Administrator Session Established.");
-                } else {
-                    throw new Error("Malformed session payload.");
-                }
-            })
-            .catch(function(err) {
-                errorMsg.textContent = err.message;
-                errorMsg.style.display = "block";
-            });
+            var meta = document.createElement("div");
+            meta.className = "chat-msg-meta";
+            var user = document.createElement("span");
+            user.className = "chat-msg-user" + (isAdmin ? " admin-user" : "");
+            user.textContent = m.userId;
+            var time = document.createElement("span");
+            time.className = "chat-msg-time";
+            time.textContent = t;
+            meta.appendChild(user);
+            meta.appendChild(time);
 
-            return false;
-        }
+            var text = document.createElement("div");
+            text.className = "chat-msg-text";
+            text.textContent = m.text;
 
-        function setBanType(type) {
-            activeBanType = type;
-            document.getElementById("typeAccount").className = "type-btn" + (type === 'account' ? ' active' : '');
-            document.getElementById("typeDevice").className = "type-btn" + (type === 'device' ? ' active' : '');
-            document.getElementById("typeIp").className = "type-btn" + (type === 'ip' ? ' active' : '');
+            var acts = document.createElement("div");
+            acts.className = "chat-msg-actions";
+            var delBtn = document.createElement("button");
+            delBtn.className = "btn btn-danger btn-sm";
+            delBtn.textContent = "Delete";
+            (function(raw) {
+                delBtn.onclick = function() {
+                    if (confirm("Delete this message?")) deleteMessage(raw);
+                };
+            })(msgs[i]);
+            acts.appendChild(delBtn);
 
-            var label = document.getElementById("targetLabel");
-            var input = document.getElementById("banTarget");
-            if (type === 'account') {
-                label.textContent = "Target Username";
-                input.placeholder = "e.g. bob";
-            } else if (type === 'device') {
-                label.textContent = "Target Hardware Signature";
-                input.placeholder = "e.g. dmFsaWQtc2lnbmF0dXJl...";
-            } else if (type === 'ip') {
-                label.textContent = "Target Network IP";
-                input.placeholder = "e.g. 192.168.1.100";
-            }
-        }
-
-        function investigateUser() {
-            var username = document.getElementById("lookupUser").value.trim();
-            if (!username) return;
-
-            var resultCard = document.getElementById("resultCard");
-            resultCard.style.display = "none";
-
-            fetch(CONFIG.apiBase + "/api/admin/user-lookup?username=" + encodeURIComponent(username), {
-                method: "GET",
-                credentials: "include",
-                headers: buildAdminHeaders({})
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    return res.json();
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "User Lookup Failed.");
-                    }).catch(function() {
-                        throw new Error("User Lookup Failed.");
-                    });
-                }
-            })
-            .then(function(data) {
-                if (data && data.status === "SUCCESS") {
-                    renderInvestigateResult(data);
-                    logToConsole("Looked up user: " + username);
-                } else {
-                    throw new Error("Malformed data response.");
-                }
-            })
-            .catch(function(err) {
-                logToConsole("Error: " + err.message);
-                alert(err.message);
-            });
-        }
-
-        function renderInvestigateResult(data) {
-            document.getElementById("resUsername").textContent = data.username;
-            document.getElementById("sessionCountLabel").textContent = "Credential integrity verified. Active sessions: " + (data.activeSessions || 0);
-
-            var statusTag = document.getElementById("resStatus");
-            statusTag.textContent = data.banned ? 'BANNED' : 'ACTIVE';
-            statusTag.className = "user-status-tag " + (data.banned ? 'status-banned' : 'status-active');
-
-            var banAccBtn = document.getElementById("banAccountBtn");
-            var muteAccBtn = document.getElementById("muteAccountBtn");
-            if (!muteAccBtn) {
-                muteAccBtn = document.createElement("button");
-                muteAccBtn.id = "muteAccountBtn";
-                muteAccBtn.className = "ban-btn-inline";
-                muteAccBtn.style.marginLeft = "10px";
-                muteAccBtn.style.borderColor = "var(--accent-purple)";
-                muteAccBtn.style.color = "var(--accent-purple)";
-                muteAccBtn.style.background = "rgba(139, 92, 246, 0.05)";
-                muteAccBtn.style.padding = "6px 12px";
-                muteAccBtn.textContent = "MUTE USER";
-                banAccBtn.parentNode.appendChild(muteAccBtn);
+            if (!isAdmin) {
+                var muteBtn = document.createElement("button");
+                muteBtn.className = "btn btn-warn btn-sm";
+                muteBtn.textContent = "Mute";
+                (function(uid) {
+                    muteBtn.onclick = function() { muteUserPrompt(uid); };
+                })(m.userId);
+                acts.appendChild(muteBtn);
             }
 
-            var resetPassBtn = document.getElementById("resetPasswordBtn");
-            if (!resetPassBtn) {
-                resetPassBtn = document.createElement("button");
-                resetPassBtn.id = "resetPasswordBtn";
-                resetPassBtn.className = "ban-btn-inline";
-                resetPassBtn.style.marginLeft = "10px";
-                resetPassBtn.style.borderColor = "var(--accent-blue)";
-                resetPassBtn.style.color = "var(--accent-blue)";
-                resetPassBtn.style.background = "rgba(59, 130, 246, 0.05)";
-                resetPassBtn.style.padding = "6px 12px";
-                resetPassBtn.textContent = "RESET PASSWORD";
-                banAccBtn.parentNode.appendChild(resetPassBtn);
-            }
+            div.appendChild(meta);
+            div.appendChild(text);
+            div.appendChild(acts);
+            feed.appendChild(div);
+        }
+        if (atBottom) feed.scrollTop = feed.scrollHeight;
+    }
 
-            var revokeSessionsBtn = document.getElementById("revokeSessionsBtn");
-            if (!revokeSessionsBtn) {
-                revokeSessionsBtn = document.createElement("button");
-                revokeSessionsBtn.id = "revokeSessionsBtn";
-                revokeSessionsBtn.className = "ban-btn-inline";
-                revokeSessionsBtn.style.marginLeft = "10px";
-                revokeSessionsBtn.style.borderColor = "#f59e0b";
-                revokeSessionsBtn.style.color = "#f59e0b";
-                revokeSessionsBtn.style.background = "rgba(245, 158, 11, 0.05)";
-                revokeSessionsBtn.style.padding = "6px 12px";
-                revokeSessionsBtn.textContent = "REVOKE SESSIONS";
-                banAccBtn.parentNode.appendChild(revokeSessionsBtn);
-            }
+    function transmitAdminMessage() {
+        var inp = document.getElementById("adminChatMessage");
+        var text = inp.value.trim();
+        if (!text) return;
+        inp.disabled = true;
+        fetch(API + "/api/send-message", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: text, sessionToken: adminToken, ink_device_id: "admin-console-bypass" })
+        })
+        .then(function(r) {
+            inp.disabled = false;
+            if (r.status === 200) { inp.value = ""; pollChat(); inp.focus(); }
+            else return r.json().then(function(d) { throw new Error(d.message || "Send failed."); });
+        })
+        .catch(function(e) { inp.disabled = false; alert(e.message); });
+    }
 
-            if (data.banned) {
-                banAccBtn.style.display = "none";
-                muteAccBtn.style.display = "none";
-                resetPassBtn.style.display = "none";
-                revokeSessionsBtn.style.display = "none";
+    function deleteMessage(raw) {
+        fetch(API + "/api/admin/delete-message", {
+            method: "POST", credentials: "include",
+            headers: buildHeaders(),
+            body: JSON.stringify({ messageRaw: raw })
+        })
+        .then(function(r) {
+            if (r.status === 200) {
+                try { log("Deleted: " + JSON.parse(raw).text.substring(0, 40)); } catch(e) {}
+                pollChat();
             } else {
-                banAccBtn.style.display = "block";
-                muteAccBtn.style.display = "block";
-                resetPassBtn.style.display = "block";
-                revokeSessionsBtn.style.display = "block";
-                banAccBtn.onclick = function() {
-                    if (confirm("Are you sure you want to permanently BAN user account " + data.username + "?")) {
-                        banTarget('account', data.username);
-                    }
-                };
-                muteAccBtn.onclick = function() {
-                    muteUserPrompt(data.username);
-                };
-                resetPassBtn.onclick = function() {
-                    resetUserPasswordPrompt(data.username);
-                };
-                revokeSessionsBtn.onclick = function() {
-                    if (confirm("Revoke every active session for user " + data.username + "?")) {
-                        revokeUserSessions(data.username);
-                    }
-                };
+                return r.json().then(function(d) { throw new Error(d.message || "Delete failed."); });
             }
+        })
+        .catch(function(e) { log("Delete error: " + e.message); alert(e.message); });
+    }
 
-            // Render Devices
-            var devList = document.getElementById("resDevices");
-            devList.innerHTML = "";
-            if (!data.linkedDevices || data.linkedDevices.length === 0) {
-                devList.innerHTML = "<li class='no-data'>No devices registered.</li>";
-            } else {
-                for (var i = 0; i < data.linkedDevices.length; i++) {
-                    var dev = data.linkedDevices[i];
-                    var li = document.createElement("li");
-                    li.className = "data-item";
-                    
-                    var span = document.createElement("span");
-                    span.textContent = dev.substring(0, 16) + "...";
-                    span.title = dev;
-                    
-                    var btn = document.createElement("button");
-                    btn.className = "ban-btn-inline";
-                    btn.textContent = "BAN DEVICE";
-                    (function(d) {
-                        btn.onclick = function() {
-                            if (confirm("Ban hardware fingerprint node: " + d + "?")) {
-                                banTarget('device', d);
-                            }
-                        };
-                    })(dev);
-
-                    li.appendChild(span);
-                    li.appendChild(btn);
-                    devList.appendChild(li);
-                }
-            }
-
-            // Render IPs
-            var ipList = document.getElementById("resIps");
-            ipList.innerHTML = "";
-            if (!data.linkedIps || data.linkedIps.length === 0) {
-                ipList.innerHTML = "<li class='no-data'>No network logs found.</li>";
-            } else {
-                for (var j = 0; j < data.linkedIps.length; j++) {
-                    var ipObj = data.linkedIps[j];
-                    var ipVal = ipObj.ip;
-                    var geo   = ipObj.geo || {};
-                    var geoStr = [
-                        geo.city, geo.region, geo.country
-                    ].filter(Boolean).join(', ') || 'Location unknown';
-                    if (geo.org) geoStr += ' · ' + geo.org;
-
-                    var li2 = document.createElement("li");
-                    li2.className = "data-item";
-                    li2.style.flexDirection = "column";
-                    li2.style.alignItems = "flex-start";
-                    li2.style.gap = "6px";
-
-                    var topRow = document.createElement("div");
-                    topRow.style.cssText = "display:flex;justify-content:space-between;align-items:center;width:100%;";
-
-                    var spanIp = document.createElement("span");
-                    spanIp.textContent = ipVal;
-
-                    var btn2 = document.createElement("button");
-                    btn2.className = "ban-btn-inline";
-                    btn2.style.padding = "3px 10px";
-                    btn2.textContent = "BAN IP";
-                    (function(ipAddr) {
-                        btn2.onclick = function() {
-                            if (confirm("Permanently ban IP: " + ipAddr + "?")) {
-                                banTarget('ip', ipAddr);
-                            }
-                        };
-                    })(ipVal);
-
-                    topRow.appendChild(spanIp);
-                    topRow.appendChild(btn2);
-
-                    var spanGeo = document.createElement("span");
-                    spanGeo.style.cssText = "font-size:11px;color:var(--text-secondary);font-family:inherit;";
-                    spanGeo.textContent = geoStr;
-
-                    li2.appendChild(topRow);
-                    li2.appendChild(spanGeo);
-                    ipList.appendChild(li2);
-                }
-            }
-
-            document.getElementById("resultCard").style.display = "block";
-        }
-
-        function banTarget(type, target) {
-            fetch(CONFIG.apiBase + "/api/admin/ban", {
-                method: "POST",
-                credentials: "include",
-                headers: buildAdminHeaders({
-                    "Content-Type": "application/json",
-                }),
-                body: JSON.stringify({ type: type, target: target })
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    return res.json();
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Ban Lockout Command Failed.");
-                    }).catch(function() {
-                        throw new Error("Ban Lockout Command Failed.");
-                    });
-                }
-            })
-            .then(function(data) {
-                if (data && data.status === "SUCCESS") {
-                    logToConsole(data.message || "Lockout executed.");
-                    investigateUser(); // Refresh card
-                } else {
-                    throw new Error("Malformed ban response.");
-                }
-            })
-            .catch(function(err) {
-                logToConsole("Error executing ban: " + err.message);
-                alert(err.message);
-            });
-        }
-
-        function revokeUserSessions(username) {
-            fetch(CONFIG.apiBase + "/api/admin/revoke-sessions", {
-                method: "POST",
-                credentials: "include",
-                headers: buildAdminHeaders({
-                    "Content-Type": "application/json"
-                }),
-                body: JSON.stringify({
-                    username: username
-                })
-            })
-            .then(function(res) {
-                return res.json().then(function(data) {
-                    if (res.status !== 200) {
-                        throw new Error(data.message || "Failed to revoke sessions.");
-                    }
-                    return data;
-                });
-            })
-            .then(function(data) {
-                logToConsole(data.message || ("Revoked sessions for " + username));
-                alert(data.message || "Sessions revoked.");
-                investigateUser();
-            })
-            .catch(function(err) {
-                alert(err.message);
-            });
-        }
-
-        function executeBanDirect() {
-            var target = document.getElementById("banTarget").value.trim();
-            if (!target) return;
-            if (confirm("Confirm instant " + activeBanType + " ban lockout command on target: " + target + "?")) {
-                banTarget(activeBanType, target);
-                document.getElementById("banTarget").value = "";
-            }
-        }
-
-        // --- Administrative Live Chat Hub Integrations ---
-        function initializeAdminChat() {
-            pollAdminMessages();
-            adminChatIntervalId = setInterval(pollAdminMessages, 5000);
-        }
-
-        var lastAdminMsgHash = "";
-        function pollAdminMessages() {
-            fetch(CONFIG.apiBase + "/api/get-messages", {
-                method: "GET",
-                credentials: "include"
-            })
-            .then(function(res) {
-                return res.json();
-            })
-            .then(function(messages) {
-                if (!messages || !Array.isArray(messages)) return;
-                var currentHash = messages.join("|");
-                if (currentHash === lastAdminMsgHash) return;
-                lastAdminMsgHash = currentHash;
-
-                var chatBox = document.getElementById("adminChatBox");
-                chatBox.innerHTML = "";
-
-                // Render oldest to newest
-                var chronMessages = messages.slice().reverse();
-                for (var i = 0; i < chronMessages.length; i++) {
-                    (function() {
-                        var rawMsg = chronMessages[i];
-                        var msgObj = JSON.parse(rawMsg);
-                        var timeString = new Date(msgObj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                        var bubble = document.createElement("div");
-                        bubble.style.border = "1px solid var(--border-color)";
-                        bubble.style.padding = "8px 12px";
-                        bubble.style.borderRadius = "6px";
-                        bubble.style.marginBottom = "10px";
-                        bubble.style.background = msgObj.role === "admin" ? "rgba(139, 92, 246, 0.1)" : "rgba(255, 255, 255, 0.02)";
-                        bubble.style.fontSize = "13px";
-
-                        var meta = document.createElement("div");
-                        meta.style.display = "flex";
-                        meta.style.metaAlign = "space-between";
-                        meta.style.justifyContent = "space-between";
-                        meta.style.color = "var(--text-secondary)";
-                        meta.style.fontSize = "11px";
-                        meta.style.marginBottom = "4px";
-
-                        var leftSpan = document.createElement("span");
-                        var userStrong = document.createElement("strong");
-                        userStrong.style.color = msgObj.role === "admin" ? "var(--accent-purple)" : "var(--text-primary)";
-                        userStrong.textContent = msgObj.userId;
-                        leftSpan.appendChild(userStrong);
-
-                        var rightSpan = document.createElement("span");
-                        rightSpan.textContent = timeString;
-
-                        meta.appendChild(leftSpan);
-                        meta.appendChild(rightSpan);
-
-                        var textDiv = document.createElement("div");
-                        textDiv.style.lineHeight = "1.4";
-                        textDiv.style.wordBreak = "break-all";
-                        textDiv.textContent = msgObj.text; // Secure textContent!
-
-                        // Controls row for Admins
-                        var controls = document.createElement("div");
-                        controls.style.marginTop = "8px";
-                        controls.style.display = "flex";
-                        controls.style.gap = "10px";
-                        controls.style.justifyContent = "flex-end";
-
-                        var delBtn = document.createElement("button");
-                        delBtn.className = "ban-btn-inline";
-                        delBtn.style.padding = "3px 8px";
-                        delBtn.style.fontSize = "10px";
-                        delBtn.textContent = "DELETE";
-                        delBtn.onclick = function() {
-                            if (confirm("Delete this message permanently?")) {
-                                deleteMessage(rawMsg);
-                            }
-                        };
-
-                        controls.appendChild(delBtn);
-
-                        if (msgObj.role !== "admin") {
-                            var muteBtn = document.createElement("button");
-                            muteBtn.className = "ban-btn-inline";
-                            muteBtn.style.padding = "3px 8px";
-                            muteBtn.style.fontSize = "10px";
-                            muteBtn.style.borderColor = "var(--accent-purple)";
-                            muteBtn.style.color = "var(--accent-purple)";
-                            muteBtn.style.background = "rgba(139, 92, 246, 0.05)";
-                            muteBtn.textContent = "MUTE";
-                            muteBtn.onmouseover = function() {
-                                muteBtn.style.background = "var(--accent-purple)";
-                                muteBtn.style.color = "#ffffff";
-                            };
-                            muteBtn.onmouseout = function() {
-                                muteBtn.style.background = "rgba(139, 92, 246, 0.05)";
-                                muteBtn.style.color = "var(--accent-purple)";
-                            };
-                            muteBtn.onclick = function() {
-                                muteUserPrompt(msgObj.userId);
-                            };
-                            controls.appendChild(muteBtn);
-                        }
-
-                        bubble.appendChild(meta);
-                        bubble.appendChild(textDiv);
-                        bubble.appendChild(controls);
-                        chatBox.appendChild(bubble);
-                    })();
-                }
-                chatBox.scrollTop = chatBox.scrollHeight;
-            })
-            .catch(function(err) {
-                console.error("Failed to poll chat: " + err.message);
-            });
-        }
-
-        function transmitAdminMessage() {
-            var input = document.getElementById("adminChatMessage");
-            var text = input.value.trim();
-            if (!text) return;
-
-            input.disabled = true;
-
-            fetch(CONFIG.apiBase + "/api/send-message", {
-                method: "POST",
-                credentials: "include",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    text: text,
-                    sessionToken: adminToken,
-                    ink_device_id: "admin-console-bypass"
-                })
-            })
-            .then(function(res) {
-                input.disabled = false;
-                if (res.status === 200) {
-                    input.value = "";
-                    pollAdminMessages();
-                    input.focus();
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Failed to transmit message.");
-                    });
-                }
-            })
-            .catch(function(err) {
-                alert(err.message);
-            });
-        }
-
-        function deleteMessage(rawMsg) {
-            fetch(CONFIG.apiBase + "/api/admin/delete-message", {
-                method: "POST",
-                credentials: "include",
-                headers: buildAdminHeaders({
-                    "Content-Type": "application/json",
-                }),
-                body: JSON.stringify({ messageRaw: rawMsg })
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    logToConsole("Admin deleted message: " + JSON.parse(rawMsg).text);
-                    pollAdminMessages();
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Failed to delete message.");
-                    });
-                }
-            })
-            .catch(function(err) {
-                alert(err.message);
-            });
-        }
-
-        function purgeAllMessagesConfirm() {
-            if (confirm("⚠️ WARNING: This will permanently delete ALL messages up to this point from the platform history.\n\nAre you sure you want to PURGE the chat log?")) {
-                if (confirm("Confirm absolute purge operation? This cannot be undone.")) {
-                    purgeAllMessages();
-                }
-            }
-        }
-
-        function purgeAllMessages() {
-            fetch(CONFIG.apiBase + "/api/admin/purge-messages", {
-                method: "POST",
-                credentials: "include",
-                headers: buildAdminHeaders({
-                    "Content-Type": "application/json",
-                })
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    logToConsole("Admin executed complete Chat Log Purge.");
-                    pollAdminMessages();
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Purge failed.");
-                    });
-                }
-            })
-            .catch(function(err) {
-                alert(err.message);
-            });
-        }
-
-        function muteUserPrompt(defaultUsername) {
-            var userVal = prompt("Enter clear username to mute:", defaultUsername || "");
-            if (!userVal) return;
-            
-            var secondsStr = prompt("Mute user '" + userVal + "'.\n\nEnter duration in seconds (e.g. 60 for 1 minute, 3600 for 1 hour):", "60");
-            if (!secondsStr) return;
-            
-            var seconds = parseInt(secondsStr, 10);
-            if (isNaN(seconds) || seconds <= 0) {
-                alert("Invalid duration.");
-                return;
-            }
-            muteUser(userVal, seconds);
-        }
-
-        function muteUser(username, durationSeconds) {
-            fetch(CONFIG.apiBase + "/api/admin/mute-user", {
-                method: "POST",
-                credentials: "include",
-                headers: buildAdminHeaders({
-                    "Content-Type": "application/json",
-                }),
-                body: JSON.stringify({
-                    username: username,
-                    durationSeconds: durationSeconds
-                })
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    logToConsole("Muted user '" + username + "' for " + durationSeconds + " seconds.");
-                    alert("User muted successfully.");
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Failed to mute user.");
-                    });
-                }
-            })
-            .catch(function(err) {
-                alert(err.message);
-            });
-        }
-
-        function resetUserPasswordPrompt(username) {
-            var newPass = prompt("Enter new password for user '" + username + "' (minimum 4 characters):");
-            if (!newPass) return;
-            if (newPass.length < 4) {
-                alert("Password must be at least 4 characters.");
-                return;
-            }
-            resetUserPassword(username, newPass);
-        }
-
-        function resetUserPassword(username, newPassword) {
-            fetch(CONFIG.apiBase + "/api/admin/reset-password", {
-                method: "POST",
-                credentials: "include",
-                headers: buildAdminHeaders({
-                    "Content-Type": "application/json",
-                }),
-                body: JSON.stringify({
-                    username: username,
-                    newPassword: newPassword
-                })
-            })
-            .then(function(res) {
-                if (res.status === 200) {
-                    logToConsole("Admin reset password for user: " + username);
-                    alert("Password reset successfully.");
-                } else {
-                    return res.json().then(function(data) {
-                        throw new Error(data.message || "Failed to reset password.");
-                    });
-                }
-            })
-            .catch(function(err) {
-                alert(err.message);
-            });
-        }
-    </script>
+    function purgeAllMessagesConfirm() {
+        if (!confirm("Delete ALL messages? This cannot be undone.")) return;
+        if (!confirm("Are you sure? All chat history will be permanently erased.")) return;
+        fetch(API + "/api/admin/purge-messages", {
+            method: "POST", credentials: "include", headers: buildHeaders()
+        })
+        .then(function(r) {
+            if (r.status === 200) { log("All messages purged."); pollChat(); }
+            else return r.json().then(function(d) { throw new Error(d.message || "Purge failed."); });
+        })
+        .catch(function(e) { log("Purge error: " + e.message); alert(e.message); });
+    }
+</script>
 </body>
 </html>

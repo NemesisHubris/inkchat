@@ -562,7 +562,6 @@ async function register(request, env, cors) {
             return json({ status: 'ERROR', message: 'This device is already registered to another account. Please log in instead.' }, 403, cors);
         }
 
-        const clientIp  = request.cf?.connectingIp || '127.0.0.1';
         const geo       = extractGeo(request);
         const deviceId  = crypto.randomUUID();
         const hash      = await hashPassword(norm, password, env);
