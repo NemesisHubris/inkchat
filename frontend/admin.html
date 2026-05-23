@@ -463,8 +463,11 @@
     <script type="text/javascript">
         var adminToken = localStorage.getItem("adminToken") || "";
         var activeBanType = "account";
+        var isLocal = window.location.hostname === "localhost" || 
+                      window.location.hostname === "127.0.0.1" || 
+                      window.location.protocol === "file:";
         var CONFIG = {
-            apiBase: "https://slatechat-proxy.kindlemodshelf.workers.dev"
+            apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev"
         };
 
         function logToConsole(message) {

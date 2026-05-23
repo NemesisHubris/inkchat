@@ -12,8 +12,11 @@
 
 (function () {
     // Top-Level Configuration
+    var isLocal = window.location.hostname === "localhost" || 
+                  window.location.hostname === "127.0.0.1" || 
+                  window.location.protocol === "file:";
     var CONFIG = {
-        apiBase: "https://slatechat-proxy.kindlemodshelf.workers.dev", // Production Cloudflare Worker URL
+        apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev", // Auto-detect local dev server
         checkHardwareEndpoint: "/api/check-hardware",
         moderateContentEndpoint: "/api/moderate-content",
         registerDeviceEndpoint: "/api/register-device",

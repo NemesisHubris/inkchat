@@ -318,7 +318,7 @@
                     </div>
                     <div id="tosRow" class="tos-row" style="display: none;">
                         <input id="tosCheck" type="checkbox">
-                        <label for="tosCheck">I agree to the <span class="tos-link" onclick="showTosModal(event);">Terms of Use</span></label>
+                        <label for="tosCheck">I agree to the <a class="tos-link" href="tos.html" target="_blank">Terms of Use</a></label>
                     </div>
                 </div>
                 
@@ -841,8 +841,12 @@
                 return;
             }
 
+            var isLocal = window.location.hostname === "localhost" || 
+                          window.location.hostname === "127.0.0.1" || 
+                          window.location.protocol === "file:";
+            var apiBase = isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev";
             var xhr = new XMLHttpRequest();
-            xhr.open("POST", "https://slatechat-proxy.kindlemodshelf.workers.dev/api/change-password", true);
+            xhr.open("POST", apiBase + "/api/change-password", true);
             xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
             xhr.onreadystatechange = function () {
                 if (xhr.readyState === 4) {
