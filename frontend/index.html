@@ -77,6 +77,16 @@
         }
         .message-outgoing {
             background-color: #f0f0f0;
+            border-left: 5px solid #000000;
+        }
+        .msg-meta {
+            font-size: 11px;
+            margin-bottom: 4px;
+            color: #555555;
+        }
+        .msg-time {
+            font-style: italic;
+            float: right;
         }
         .input-row {
             display: flex;
@@ -106,6 +116,12 @@
         .send-btn:hover {
             background-color: #333333;
         }
+        .send-btn:disabled, .chat-input:disabled {
+            background-color: #e0e0e0;
+            color: #888888;
+            border-color: #888888;
+            cursor: not-allowed;
+        }
         .metadata-section {
             margin-top: 25px;
             font-size: 11px;
@@ -126,7 +142,7 @@
 
         <div id="chatBox" class="chat-box">
             <div class="message-bubble message-incoming">
-                <strong>[System]</strong> Welcome to InkChat. Generating hardware parameters and validating device state...
+                <strong>[System]</strong> Welcome to InkChat. Commencing hardware screening...
             </div>
         </div>
 
@@ -138,8 +154,9 @@
         </form>
 
         <div class="metadata-section">
+            <strong>My Session ID:</strong> <span id="userIdDisplay">Loading...</span><br>
             <strong>Active Device Token:</strong> <span id="deviceToken">Verifying...</span><br>
-            <strong>E-Ink Optimization:</strong> High Contrast Layout Active (Low Refresh Rate Compatible).
+            <strong>E-Ink Optimization:</strong> Polling Engine active (5000ms loop). High contrast active.
         </div>
     </div>
 
@@ -147,7 +164,39 @@
     <script src="kindle-telemetry.js" type="text/javascript"></script>
 
     <script type="text/javascript">
-        // Bind to the custom handshake verification event fired by kindle-telemetry.js
+        var activeUserId = null;
+        var activeDeviceFingerprint = null;
+        var pollingIntervalId = null;
+
+        // Session Cookie Utilities
+        function getCookie(name) {
+            var nameEQ = name + "=";
+            var ca = document.cookie.split(';');
+            for (var i = 0; i < ca.length; i++) {
+                var c = ca[i];
+                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+            }
+            return null;
+        }
+
+        function setHardCookie(name, value) {
+            var date = new Date();
+            date.setFullYear(date.getFullYear() + 10);
+            var expires = "; expires=" + date.toUTCString();
+            document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict";
+        }
+
+        // Initialize session-based User ID
+        activeUserId = getCookie("inkchat_user_id");
+        if (!activeUserId) {
+            // Generate a simple, unique user identifier
+            activeUserId = "user_" + Math.floor(10000 + Math.random() * 90000);
+            setHardCookie("inkchat_user_id", activeUserId);
+        }
+        document.getElementById("userIdDisplay").innerHTML = activeUserId;
+
+        // Bind to custom event dispatched by kindle-telemetry.js
         if (window.addEventListener) {
             window.addEventListener("inkDeviceReady", function(e) {
                 initializeChatWorkspace(e.detail.fingerprint);
@@ -159,18 +208,39 @@
         }
 
         function initializeChatWorkspace(token) {
+            activeDeviceFingerprint = token;
+
             // Update UI status badges
             var badge = document.getElementById("badge");
             badge.className = "status-badge status-ready";
             badge.innerHTML = "Secure Link Active";
 
-            document.getElementById("deviceToken").innerHTML = token;
+            document.getElementById("deviceToken").innerHTML = token.substring(0, 15) + "...";
 
-            // Enable text input fields
-            document.getElementById("messageInput").removeAttribute("disabled");
-            document.getElementById("sendBtn").removeAttribute("disabled");
+            // Map and bind the device to the User ID in Redis to lock it
+            if (window.InkDeviceManager && typeof window.InkDeviceManager.registerCurrentDevice === "function") {
+                window.InkDeviceManager.registerCurrentDevice(activeUserId, function(err, res) {
+                    if (err) {
+                        appendSystemMessage("Device registration lock failed. Session restricted.");
+                        return;
+                    }
+                    
+                    // Enable text input fields
+                    document.getElementById("messageInput").removeAttribute("disabled");
+                    document.getElementById("sendBtn").removeAttribute("disabled");
+                    appendSystemMessage("Device registered. Multi-account policy check active.");
 
-            appendSystemMessage("Secure hardware signature established and approved by edge proxy gatekeeper.");
+                    // Launch the 5-second polling engine
+                    pollMessages();
+                    pollingIntervalId = setInterval(pollMessages, 5000);
+                });
+            } else {
+                // Fallback enabled
+                document.getElementById("messageInput").removeAttribute("disabled");
+                document.getElementById("sendBtn").removeAttribute("disabled");
+                pollMessages();
+                pollingIntervalId = setInterval(pollMessages, 5000);
+            }
         }
 
         function appendSystemMessage(text) {
@@ -182,36 +252,112 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        function appendUserMessage(text) {
-            var chatBox = document.getElementById("chatBox");
-            var bubble = document.createElement("div");
-            bubble.className = "message-bubble message-outgoing";
-            bubble.innerHTML = "<strong>[You]</strong> " + text;
-            chatBox.appendChild(bubble);
-            chatBox.scrollTop = chatBox.scrollHeight;
+        // High-performance ES5 HTML escaping to prevent XSS
+        function escapeHtml(str) {
+            return str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
 
+        /**
+         * E-Ink Polling Routine
+         * Queries GET /api/get-messages every 5 seconds.
+         */
+        function pollMessages() {
+            if (!window.InkChatEngine || typeof window.InkChatEngine.getMessages !== "function") {
+                return;
+            }
+
+            window.InkChatEngine.getMessages(function(err, messages) {
+                if (err) {
+                    console.error("Failed to pull messages: " + err.message);
+                    return;
+                }
+
+                var chatBox = document.getElementById("chatBox");
+                var html = "";
+
+                // Reverse the array to render in chronological order (oldest -> newest at bottom)
+                var chronMessages = messages.slice().reverse();
+
+                for (var i = 0; i < chronMessages.length; i++) {
+                    try {
+                        var msgObj = JSON.parse(chronMessages[i]);
+                        var timeString = new Date(msgObj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        
+                        // Mask evaluation: determine if it's the current user sending
+                        // The backend masks the User ID (e.g. user_12345 becomes user_1***5)
+                        // We check if the masked ID matches our own masked ID or a standard match
+                        var isMyOutgoing = false;
+                        var myMasked = activeUserId.substring(0, 5) + "***" + activeUserId.substring(activeUserId.length - 2);
+                        if (msgObj.userId === myMasked) {
+                            isMyOutgoing = true;
+                        }
+
+                        var bubbleClass = isMyOutgoing ? "message-bubble message-outgoing" : "message-bubble message-incoming";
+
+                        html += "<div class='" + bubbleClass + "'>" +
+                                "<div class='msg-meta'>" +
+                                "<strong>" + escapeHtml(msgObj.userId) + "</strong>" +
+                                "<span class='msg-time'>" + timeString + "</span>" +
+                                "</div>" +
+                                "<div>" + escapeHtml(msgObj.text) + "</div>" +
+                                "</div>";
+                    } catch (e) {
+                        // Skip corrupted frames
+                    }
+                }
+
+                // If chat index differs, update DOM to limit screen ghosts
+                if (html) {
+                    chatBox.innerHTML = html;
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+            });
+        }
+
+        /**
+         * Core Message Transmission Routine
+         */
         function handleMessageSubmit(event) {
             if (event.preventDefault) event.preventDefault();
             
             var input = document.getElementById("messageInput");
+            var sendBtn = document.getElementById("sendBtn");
             var text = input.value.trim();
             if (!text) return false;
 
-            // Intercept message release and route it through the ES5 standalone moderation interceptor
-            if (window.InkModerationShield && typeof window.InkModerationShield.moderate === "function") {
-                window.InkModerationShield.moderate(text, function() {
-                    // SUCCESS callback (cleared by safety model)
-                    appendUserMessage(text);
+            // Lock inputs to prevent double clicks on slow e-ink touch modules
+            input.disabled = true;
+            sendBtn.disabled = true;
+
+            if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
+                window.InkChatEngine.sendMessage(text, activeUserId, activeDeviceFingerprint, function(err, response) {
+                    // Unlock fields
+                    input.disabled = false;
+                    sendBtn.disabled = false;
+
+                    if (err) {
+                        alert("Message dropped: Connection error.");
+                        return;
+                    }
+
+                    if (response && response.status === "ERROR") {
+                        alert(response.message || "Message blocked by safety filters.");
+                        return;
+                    }
+
+                    // Clear and query immediately to keep UI highly responsive
                     input.value = "";
-                }, function(reason) {
-                    // FAILURE callback
-                    console.warn("Input dropped by moderation shield: " + reason);
+                    pollMessages();
+                    input.focus();
                 });
             } else {
-                // Fallback direct release (if telemetry is inactive/bypassed)
-                appendUserMessage(text);
-                input.value = "";
+                input.disabled = false;
+                sendBtn.disabled = false;
             }
 
             return false;

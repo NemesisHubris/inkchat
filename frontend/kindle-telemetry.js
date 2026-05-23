@@ -475,9 +475,67 @@
     };
 
     /**
+     * Core Messaging Transmission & Pull API
+     * Written strictly in ES5 JavaScript using raw XHR protocols.
+     */
+    window.InkChatEngine = {
+        sendMessage: function (text, userId, fingerprint, callback) {
+            var payload = {
+                text: text,
+                userId: userId,
+                fingerprint: fingerprint
+            };
+            dispatchXhrPost(CONFIG.apiBase + "/api/send-message", payload, callback);
+        },
+        getMessages: function (callback) {
+            var xhr = null;
+            if (window.XMLHttpRequest) {
+                xhr = new XMLHttpRequest();
+            } else if (window.ActiveXObject) {
+                try {
+                    xhr = new ActiveXObject("Msxml2.XMLHTTP");
+                } catch (e) {
+                    try {
+                        xhr = new ActiveXObject("Microsoft.XMLHTTP");
+                    } catch (el) {}
+                }
+            }
+
+            if (!xhr) {
+                callback(new Error("Browser does not support XHR protocols."), null);
+                return;
+            }
+
+            // Perform standard asynchronous GET query
+            xhr.open("GET", CONFIG.apiBase + "/api/get-messages", true);
+            
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        var parsedResponse = null;
+                        try {
+                            parsedResponse = JSON.parse(xhr.responseText);
+                        } catch (e) {
+                            parsedResponse = xhr.responseText;
+                        }
+                        callback(null, parsedResponse);
+                    } else {
+                        callback(new Error("Message retrieval failed with HTTP " + xhr.status), null);
+                    }
+                }
+            };
+
+            xhr.send(null);
+        }
+    };
+
+    /**
      * Self-executing Load Routing Hook
      */
     function executeTelemetrySync() {
+        // Link dynamically to standard inkchat_user_id session cookie
+        CONFIG.currentUserId = readCookie("inkchat_user_id");
+
         syncLocalStorageAndCookie(function (token, err) {
             if (err === "DESKTOP_SPOOF_DETECTED") {
                 enforceDeviceLockout("Enforcing hardware policy: Direct desktop client spoofing is strictly prohibited.");
