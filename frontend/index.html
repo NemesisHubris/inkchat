@@ -2,168 +2,482 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InkChat | Workspace</title>
-    <!-- Premium Bookerly-adjacent typography & high contrast styles -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+    <title>InkChat | Retro Workspace</title>
     <style>
+        /* SYSTEM 7 AESTHETICS - High-Contrast E-Ink Facelift */
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --border: 2px solid #000000;
+            --shadow: 4px 4px 0px #000000;
+            --stripe-pattern: repeating-linear-gradient(0deg, transparent, transparent 2px, #000 3px, #000 4px);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
         }
+
         body {
-            background-color: #ffffff;
-            color: #000000;
-            font-family: 'Bookerly', 'Amazon Ember', 'Caecilia', Georgia, serif;
-            padding: 20px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            font-family: "Geneva", "Verdana", "Bookerly", Georgia, sans-serif;
+            background-color: #e5e5e5;
+            margin: 0;
+            padding: 10px;
+            height: 100vh;
+            overflow: hidden;
             display: flex;
-            justify-content: center;
             align-items: center;
-            min-height: 100vh;
+            justify-content: center;
+            user-select: none;
         }
-        .app-container {
-            border: 4px solid #000000;
-            width: 100%;
-            max-width: 600px;
-            padding: 25px;
+
+        /* RETRO MACINTOSH WINDOW CONTAINER */
+        .window {
             background: #ffffff;
-        }
-        .header {
-            border-bottom: 2px solid #000000;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        h1 {
-            font-size: 28px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            font-weight: 800;
-        }
-        .status-badge {
-            display: inline-block;
-            margin-top: 8px;
-            padding: 4px 10px;
             border: 2px solid #000000;
-            font-size: 12px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        .status-verifying {
-            background-color: #000000;
-            color: #ffffff;
-        }
-        .status-ready {
-            background-color: #ffffff;
-            color: #000000;
-        }
-        .chat-box {
-            border: 2px solid #000000;
-            height: 300px;
-            overflow-y: auto;
-            padding: 15px;
-            margin-bottom: 20px;
-            background: #fafafa;
-        }
-        .message-bubble {
-            margin-bottom: 12px;
-            padding: 8px 12px;
-            border: 1px solid #000000;
-            font-size: 15px;
-            line-height: 1.5;
-            text-align: left;
-        }
-        .message-incoming {
-            background-color: #ffffff;
-        }
-        .message-outgoing {
-            background-color: #f0f0f0;
-            border-left: 5px solid #000000;
-        }
-        .msg-meta {
-            font-size: 11px;
-            margin-bottom: 4px;
-            color: #555555;
-        }
-        .msg-time {
-            font-style: italic;
-            float: right;
-        }
-        .input-row {
+            box-shadow: var(--shadow);
             display: flex;
-            gap: 10px;
+            flex-direction: column;
+            height: 95vh;
+            width: 100%;
+            max-width: 900px;
+            position: relative;
         }
-        .chat-input {
-            flex-grow: 1;
-            padding: 12px;
-            border: 2px solid #000000;
-            font-size: 16px;
-            font-family: inherit;
+
+        /* RETRO TITLE BAR */
+        .title-bar {
+            height: 35px;
+            border-bottom: 2px solid #000000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            padding: 0 10px;
+            position: relative;
+            flex-shrink: 0;
         }
-        .chat-input:focus {
-            outline: none;
-            background-color: #f7f7f7;
+
+        .title-stripes {
+            position: absolute;
+            top: 4px;
+            bottom: 4px;
+            left: 4px;
+            right: 4px;
+            background-image: var(--stripe-pattern);
+            z-index: 0;
         }
-        .send-btn {
-            background-color: #000000;
-            color: #ffffff;
-            border: none;
-            padding: 12px 24px;
-            font-size: 16px;
+
+        .title-text {
+            background: #ffffff;
+            padding: 0 15px;
             font-weight: bold;
+            z-index: 1;
+            font-size: 1.1rem;
             text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* TITLE CLOSE BOX */
+        .close-box {
+            position: absolute;
+            left: 10px;
+            width: 18px;
+            height: 18px;
+            border: 2px solid #000000;
+            background: #ffffff;
+            z-index: 2;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-family: sans-serif;
+            font-size: 0.9rem;
+            line-height: 1;
+            box-shadow: 2px 2px 0 #000000;
         }
-        .send-btn:hover {
-            background-color: #333333;
+
+        .close-box:active {
+            background: #000000;
+            color: #ffffff;
+            box-shadow: none;
+            transform: translate(1px, 1px);
         }
-        .send-btn:disabled, .chat-input:disabled {
+
+        /* CONTROLS (Right side of Title Bar) */
+        .title-controls {
+            position: absolute;
+            right: 10px;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .icon-btn {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #000000;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 2px 2px 0 #000000;
+            padding: 0;
+            flex-shrink: 0;
+        }
+
+        .icon-btn:active {
+            background: #000000;
+            color: #ffffff;
+            transform: translate(1px, 1px);
+            box-shadow: none;
+        }
+
+        /* PURE RETRO SYSTEM BUTTON */
+        .sys-btn {
+            background: #ffffff;
+            border: 2px solid #000000;
+            padding: 4px 10px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 2px 2px 0 #000000;
+            font-size: 0.75rem;
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-transform: uppercase;
+        }
+
+        .sys-btn:active {
+            background: #000000;
+            color: #ffffff;
+            box-shadow: none;
+            transform: translate(2px, 2px);
+        }
+
+        .sys-btn:disabled {
             background-color: #e0e0e0;
             color: #888888;
             border-color: #888888;
+            box-shadow: none;
             cursor: not-allowed;
-        }
-        .metadata-section {
-            margin-top: 25px;
-            font-size: 11px;
-            border-top: 1px dashed #000000;
-            padding-top: 15px;
-            color: #555555;
-            line-height: 1.6;
+            transform: none !important;
         }
 
-        /* High-Contrast E-Ink Optimized Auth Overlay styling */
+        /* SPLIT LAYOUT */
+        #app-layout {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        /* SIDEBAR PANEL */
+        #sidebar {
+            width: 240px;
+            border-right: 2px solid #000000;
+            display: flex;
+            flex-direction: column;
+            background: #fdfdfd;
+            flex-shrink: 0;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .sidebar-section {
+            border: 2px solid #000000;
+            padding: 12px;
+            background: #ffffff;
+            margin-bottom: 15px;
+            box-shadow: 2px 2px 0 #000000;
+        }
+
+        .sidebar-title {
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 4px;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-data {
+            font-size: 12px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        /* CHAT VIEW SECTION */
+        #chat-view {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+            position: relative;
+            min-width: 0;
+        }
+
+        /* ROOM HEADER */
+        .room-header {
+            border-bottom: 2px solid #000000;
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f0f0f0;
+            font-size: 0.85rem;
+            font-weight: bold;
+            flex-shrink: 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* CHAT HISTORY BOX */
+        #chatBox {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            background: #fafafa;
+        }
+
+        #chatBox>*+* {
+            margin-top: 10px;
+        }
+
+        /* MESSAGING BUBBLES & LAYOUTS */
+        .message-bubble {
+            margin-bottom: 5px;
+            padding: 8px 12px;
+            border: 2px solid #000000;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.45;
+            background: #ffffff;
+            box-shadow: 2px 2px 0px #cccccc;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            max-width: 85%;
+            align-self: flex-start;
+            position: relative;
+        }
+
+        .message-outgoing {
+            background-color: #ffffff;
+            border: 2px solid #000000;
+            align-self: flex-end;
+            box-shadow: 2px 2px 0px #000000;
+        }
+
+        .message-incoming {
+            background-color: #ffffff;
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            margin-bottom: 5px;
+            color: #555555;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .msg-time {
+            font-style: italic;
+            margin-left: auto;
+        }
+
+        /* RETRO USER THEMES - Premium Bookerly aesthetics */
+        /* Supporter Theme: double border with crown */
+        .message-bubble.supporter {
+            border: 3px double #000000 !important;
+            box-shadow: 3px 3px 0 #cccccc !important;
+        }
+        .message-bubble.supporter.message-outgoing {
+            box-shadow: 3px 3px 0 #000000 !important;
+        }
+
+        .supporter-crown {
+            width: 13px;
+            height: 13px;
+            vertical-align: middle;
+            fill: #000000;
+        }
+
+        /* Developer Theme: White text on Black background with Alternating Dotted Outline */
+        .message-bubble.developer {
+            background: #000000 !important;
+            color: #ffffff !important;
+            border: 2px solid #000000 !important;
+            outline: 2px dotted #ffffff !important;
+            outline-offset: -2px !important;
+            box-shadow: 4px 4px 0 #cccccc !important;
+        }
+        .message-bubble.developer.message-outgoing {
+            box-shadow: 4px 4px 0 #000000 !important;
+        }
+
+        .message-bubble.developer .msg-meta {
+            color: #cccccc;
+        }
+
+        .dev-badge {
+            background: #ffffff;
+            color: #000000;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 8px;
+            font-weight: bold;
+            border: 1px solid #000000;
+            text-transform: uppercase;
+        }
+
+        /* INPUT PANEL */
+        .input-area {
+            border-top: 2px solid #000000;
+            padding: 10px;
+            display: flex;
+            background: #f0f0f0;
+            flex-shrink: 0;
+            position: relative;
+            gap: 8px;
+        }
+
+        .chat-textarea {
+            flex-grow: 1;
+            border: 2px solid #000000;
+            padding: 8px 10px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: none;
+            height: 60px;
+            background: #ffffff;
+        }
+
+        .chat-textarea:focus {
+            outline: none;
+            background-color: #fafafa;
+        }
+
+        .chat-send-btn {
+            background-color: #ffffff;
+            color: #000000;
+            border: 2px solid #000000;
+            padding: 0 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 2px 2px 0 #000000;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .chat-send-btn:active {
+            background-color: #000000;
+            color: #ffffff;
+            box-shadow: none;
+            transform: translate(2px, 2px);
+        }
+
+        /* Unused picker styles removed */
+
+        /* HIGH CONTRAST RETRO SYSTEM OVERLAYS */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-box {
+            background: #ffffff;
+            border: 2px solid #000000;
+            box-shadow: 6px 6px 0px #000000;
+            width: 100%;
+            max-width: 440px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-body {
+            padding: 20px;
+            text-align: left;
+        }
+
+        .modal-title {
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
+            letter-spacing: 0.5px;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #000000;
+            font-size: 14px;
+            font-family: inherit;
+            margin-bottom: 12px;
+        }
+
+        .modal-btns {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        /* AUTH PRE-SCREEN SHIELD MODAL */
         .auth-overlay {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: #ffffff;
+            background-color: #e5e5e5;
             display: flex;
             justify-content: center;
             align-items: center;
-            z-index: 1000;
+            z-index: 9000;
             padding: 20px;
         }
         .auth-card {
-            border: 5px solid #000000;
+            border: 2px solid #000000;
             width: 100%;
-            max-width: 420px;
-            padding: 30px 20px;
+            max-width: 400px;
             background: #ffffff;
+            box-shadow: var(--shadow);
         }
         .auth-tabs {
             display: flex;
-            border-bottom: 3px solid #000000;
-            margin-bottom: 20px;
+            border-bottom: 2px solid #000000;
         }
         .auth-tab {
             flex: 1;
             padding: 10px;
             border: none;
             background: #ffffff;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: bold;
             text-transform: uppercase;
             cursor: pointer;
@@ -173,283 +487,537 @@
             background: #000000;
             color: #ffffff;
         }
-        .input-group {
-            margin-bottom: 15px;
-            text-align: left;
-            width: 100%;
-        }
-        .input-group label {
-            display: block;
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-        }
-        .auth-input {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #000000;
-            font-size: 16px;
-            font-family: inherit;
-        }
-        .auth-btn {
-            width: 100%;
-            background-color: #000000;
-            color: #ffffff;
-            border: none;
-            padding: 12px;
-            font-size: 16px;
-            font-weight: bold;
-            text-transform: uppercase;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-        .auth-btn:hover {
-            background-color: #333333;
-        }
-        .auth-btn:disabled {
-            background-color: #e0e0e0;
-            color: #888888;
-            cursor: not-allowed;
-        }
-        .tos-row {
-            margin: 15px 0;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .tos-row input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: #000000;
-        }
-        .tos-link {
-            text-decoration: underline;
-            font-weight: bold;
-            cursor: pointer;
-            color: #000000;
-        }
-        .auth-error-msg {
-            margin-top: 15px;
-            border: 2px solid #000000;
-            padding: 10px;
-            background-color: #ffffff;
-            color: #000000;
-            font-weight: bold;
-            font-size: 13px;
-            text-align: center;
-            width: 100%;
-        }
-
-        /* Terms of Use Modal overlay */
-        .tos-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(255, 255, 255, 0.95);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 2000;
-            padding: 20px;
-        }
-        .tos-content {
-            border: 5px solid #000000;
-            width: 100%;
-            max-width: 480px;
-            padding: 30px 20px;
-            background: #ffffff;
-            text-align: left;
-        }
-        .tos-content h2 {
-            font-size: 22px;
-            text-transform: uppercase;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #000000;
-            padding-bottom: 8px;
-        }
-        .tos-text {
-            font-size: 14px;
-            line-height: 1.5;
-            margin-bottom: 25px;
-            max-height: 250px;
-            overflow-y: auto;
-        }
-        .tos-text p {
-            margin-bottom: 10px;
-        }
-        .tos-close-btn {
-            background-color: #000000;
-            color: #ffffff;
-            border: none;
-            padding: 10px 20px;
-            font-size: 14px;
-            font-weight: bold;
-            text-transform: uppercase;
-            cursor: pointer;
-        }
     </style>
 </head>
 <body>
 
-    <!-- Auth Overlay Modal (Tabbed Register/Login) -->
+    <!-- Tabbed Auth Prescreen Window -->
     <div id="authOverlay" class="auth-overlay" style="display: none;">
         <div class="auth-card">
-            <div class="auth-tabs">
-                <button id="tabLogin" class="auth-tab tab-active" onclick="switchAuthTab('login');">Login</button>
-                <button id="tabRegister" class="auth-tab" onclick="switchAuthTab('register');">Register</button>
+            <!-- Window Title Bar -->
+            <div class="title-bar">
+                <div class="title-stripes"></div>
+                <div class="close-box" onclick="window.location.reload();" title="Refresh">X</div>
+                <span class="title-text">InkChat Auth Gate</span>
             </div>
             
-            <form id="authForm" onsubmit="return handleAuthSubmit(event);">
-                <div id="authNotice" style="display: none; font-size: 11px; font-weight: bold; border: 2px dashed #000000; padding: 8px; margin-bottom: 12px; background: #fafafa; text-align: left; line-height: 1.4;"></div>
-                <div id="authFields">
-                    <div class="input-group">
-                        <label for="authUsername">Username</label>
-                        <input id="authUsername" type="text" class="auth-input" required autocomplete="off">
-                    </div>
-                    <div class="input-group">
-                        <label for="authPassword">Password</label>
-                        <input id="authPassword" type="password" class="auth-input" required>
-                        <div style="font-size: 11px; margin-top: 8px; line-height: 1.4; color: #555555; text-align: left;">
-                            Forgotten password? Contact <strong style="text-decoration: underline;">admin@kindlemodshelf.me</strong> or DM <strong style="text-decoration: underline;">@kindlemodshelfguy</strong> on Kindle Tweaks Discord.
-                        </div>
-                    </div>
-                    <div id="tosRow" class="tos-row" style="display: none;">
-                        <input id="tosCheck" type="checkbox">
-                        <label for="tosCheck">I agree to the <a class="tos-link" href="tos.html" target="_blank">Terms of Use</a></label>
-                    </div>
+            <div style="padding: 20px;">
+                <div class="auth-tabs" style="margin-bottom: 15px;">
+                    <button id="tabLogin" class="auth-tab tab-active" onclick="switchAuthTab('login');">Login</button>
+                    <button id="tabRegister" class="auth-tab" onclick="switchAuthTab('register');">Register</button>
                 </div>
                 
-                <button id="authBtn" type="submit" class="auth-btn">Log In</button>
-                <div id="authError" class="auth-error-msg" style="display: none;"></div>
-            </form>
+                <form id="authForm" onsubmit="return handleAuthSubmit(event);">
+                    <div id="authNotice" style="display: none; font-size: 11px; font-weight: bold; border: 2px dashed #000000; padding: 8px; margin-bottom: 12px; background: #fafafa; line-height: 1.4;"></div>
+                    
+                    <div class="input-group" style="margin-bottom: 12px; text-align: left;">
+                        <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 4px; text-transform: uppercase;">Username</label>
+                        <input id="authUsername" type="text" class="modal-input" style="margin-bottom: 0;" required autocomplete="off">
+                    </div>
+                    <div class="input-group" style="margin-bottom: 12px; text-align: left;">
+                        <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 4px; text-transform: uppercase;">Password</label>
+                        <input id="authPassword" type="password" class="modal-input" style="margin-bottom: 0;" required>
+                        <div style="font-size: 10px; margin-top: 6px; line-height: 1.4; color: #555555;">
+                            Forgotten password? Contact <strong style="text-decoration: underline;">admin@kindlemodshelf.me</strong> or DM <strong style="text-decoration: underline;">@kindlemodshelfguy</strong>.
+                        </div>
+                    </div>
+                    <div id="tosRow" class="tos-row" style="display: none; font-size: 12px; align-items: center; gap: 8px; margin-bottom: 15px;">
+                        <input id="tosCheck" type="checkbox" style="width:16px; height:16px;">
+                        <label for="tosCheck">I agree to the <a class="tos-link" style="text-decoration: underline; font-weight:bold; cursor:pointer;" onclick="showTosModal(event);">Terms of Use</a></label>
+                    </div>
+                    
+                    <button id="authBtn" type="submit" class="sys-btn" style="width: 100%; padding: 10px; font-size: 13px;">Log In</button>
+                    <div id="authError" class="auth-error-msg" style="display: none; margin-top: 15px; border: 2px solid #000000; padding: 8px; font-weight: bold; font-size: 11px; text-align: center; color: red;"></div>
+                </form>
+            </div>
         </div>
     </div>
 
-    <!-- Terms of Use Modal -->
-    <div id="tosModal" class="tos-modal" style="display: none;">
-        <div class="tos-content">
-            <h2>Terms of Use</h2>
-            <div class="tos-text" style="text-align: left;">
-                <p style="font-weight: bold;">By using InkChat, you agree to these rules. If you break them, you will be banned.</p>
-                <p><strong>Kindle Only:</strong> This app is strictly for genuine Kindle e-ink devices. Emulators, bots, or spoofing software are prohibited and will be blocked.</p>
-                <p><strong>Be Respectful:</strong> No harassment, threats, or abusive language. All messages are monitored by AI filters.</p>
-                <p><strong>Don't Spam:</strong> Respect the 1-second message cooldown. Flooding the chat or using automated scripts will cause your messages to be dropped.</p>
-                <p><strong>Privacy:</strong> We only track your IP address and hardware signature to keep the chat secure. We never sell your data or run ads.</p>
-                <p><strong>Enforcement:</strong> Administrators have the final say and reserve the right to revoke your access at any time, without warning.</p>
+    <!-- Retro Terms of Use Dialog -->
+    <div id="tosModal" class="modal-overlay" style="display: none;">
+        <div class="modal-box">
+            <div class="title-bar">
+                <div class="title-stripes"></div>
+                <div class="close-box" onclick="hideTosModal();">X</div>
+                <span class="title-text">Terms of Use</span>
             </div>
-            <button class="tos-close-btn" onclick="hideTosModal();">Close</button>
+            <div class="modal-body">
+                <div style="font-size: 12px; line-height: 1.5; max-height: 250px; overflow-y: auto; border: 2px solid #000000; padding: 10px; background: #fafafa; margin-bottom: 15px;">
+                    <p style="font-weight: bold; margin-bottom: 8px;">By using InkChat, you agree to these rules. Violation triggers immutable hardware lockout.</p>
+                    <p style="margin-bottom: 6px;"><strong>Kindle Only:</strong> Strictly for genuine Kindle e-ink terminals. Emulators and bots are prohibited.</p>
+                    <p style="margin-bottom: 6px;"><strong>Respect the Room:</strong> No harassment or physical threat vectors. Monitored by edge safety AI.</p>
+                    <p style="margin-bottom: 6px;"><strong>Don't Flood:</strong> 1-second dynamic send cooldown enforced.</p>
+                    <p><strong>Administration:</strong> Operators reserve unilateral right to revoke hardware access tokens.</p>
+                </div>
+                <button class="sys-btn" style="float: right;" onclick="hideTosModal();">Close</button>
+            </div>
         </div>
     </div>
 
-    <!-- Main Workspace Container -->
-    <div id="mainWorkspace" class="app-container" style="display: none;">
-        <div class="header">
-            <h1>InkChat</h1>
-            <div id="badge" class="status-badge status-ready">Secure Link Active</div>
-            <button onclick="handleSignOut();" style="display: block; margin: 10px auto 0; background: none; border: 2px solid #000000; padding: 4px 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; cursor: pointer;">Sign Out</button>
-        </div>
-
-        <div id="chatBox" class="chat-box"></div>
-
-        <form id="chatForm" onsubmit="return handleMessageSubmit(event);">
-            <div class="input-row">
-                <input id="messageInput" type="text" class="chat-input" placeholder="Type a message to transmit..." disabled autocomplete="off">
-                <button id="sendBtn" type="submit" class="send-btn" disabled>Send</button>
-            </div>
-        </form>
-
-        <div class="metadata-section">
-            <strong>Logged Account:</strong> <span id="userIdDisplay">Loading...</span><br>
-            <strong>Active Device Token:</strong> <span id="deviceToken">Verifying...</span><br>
-            <strong>E-Ink Optimization:</strong> Polling Engine active (5000ms loop). High contrast active.
-        </div>
-
-        <div style="margin-top: 15px; border-top: 1px dashed #000000; padding-top: 10px; text-align: left;">
-            <button id="toggleChangePasswordBtn" onclick="toggleChangePasswordForm();" style="background: none; border: 2px solid #000000; padding: 4px 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; cursor: pointer; display: block; width: 100%;">Change Password</button>
+    <!-- MAIN SYSTEM 7 WINDOW WORKSPACE -->
+    <div id="mainWorkspace" class="window" style="display: none;">
+        <!-- Window Title Bar -->
+        <div class="title-bar">
+            <div class="title-stripes"></div>
+            <div class="close-box" onclick="handleSignOut();" title="Sign Out">X</div>
             
-            <div id="changePasswordFormContainer" style="display: none; margin-top: 10px; border: 2px solid #000000; padding: 12px; background: #fafafa;">
-                <div class="input-group">
-                    <label for="oldPasswordInput" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">Current Password</label>
-                    <input id="oldPasswordInput" type="password" class="auth-input" style="padding: 6px; font-size: 13px;" required>
+            <button id="inboxBadge" class="sys-btn" onclick="toggleInboxPanel();" style="position: absolute; left: 40px; z-index: 2; height: 22px; padding: 0 8px; font-size: 10px;">Inbox (0)</button>
+            
+            <span class="title-text">InkChat Secure Terminal</span>
+            
+            <div class="title-controls">
+                <button class="sys-btn" onclick="openRulesModal();" style="height: 22px; padding: 0 8px; font-size: 10px;">Rules</button>
+                <button class="icon-btn" onclick="openSettingsModal();" title="Terminal Settings">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="app-layout">
+            <!-- Sidebar (Session, Settings, and Actions) -->
+            <div id="sidebar">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">Secure Connection</div>
+                    <div class="sidebar-data">
+                        <div>Account: <strong id="userIdDisplay">...</strong></div>
+                        <div style="margin-top: 5px;">Status: <span style="font-weight: bold; border: 1px solid #000000; padding: 1px 4px; font-size: 9px; text-transform: uppercase;">Active Link</span></div>
+                    </div>
                 </div>
-                <div class="input-group" style="margin-top: 8px;">
-                    <label for="newPasswordInput" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">New Password</label>
-                    <input id="newPasswordInput" type="password" class="auth-input" style="padding: 6px; font-size: 13px;" required>
+            </div>
+
+            <!-- Main Chat View Area -->
+            <div id="chat-view">
+                <div class="room-header">
+                    <span>Public Channel: General</span>
                 </div>
-                <div class="input-group" style="margin-top: 8px;">
-                    <label for="confirmNewPasswordInput" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">Confirm New Password</label>
-                    <input id="confirmNewPasswordInput" type="password" class="auth-input" style="padding: 6px; font-size: 13px;" required>
-                </div>
-                <button onclick="submitChangePassword();" style="margin-top: 12px; width: 100%; background: #000000; color: #ffffff; border: none; padding: 8px; font-size: 12px; font-weight: bold; text-transform: uppercase; cursor: pointer;">Save Changes</button>
-                <div id="changePasswordStatus" style="display: none; margin-top: 8px; font-size: 11px; font-weight: bold; text-align: center; border: 1px solid #000000; padding: 4px; background: #ffffff;"></div>
+
+                <div id="chatBox"></div>
+
+                <form id="chatForm" onsubmit="return handleMessageSubmit(event);">
+                    <!-- Dynamic Reply Preview Bar -->
+                    <div id="replyPreviewBar" style="display: none; border: 2px solid #000000; border-bottom: none; background: #fafafa; padding: 8px 12px; font-size: 12px; text-align: left; position: relative;">
+                        <strong>Replying to <span id="replyUserLabel"></span></strong>: 
+                        <span id="replyTextLabel" style="font-style: italic;"></span>
+                        <button type="button" onclick="cancelActiveReply();" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: 2px solid #000000; padding: 2px 6px; font-size: 10px; font-weight: bold; cursor: pointer; text-transform: uppercase;">Cancel</button>
+                    </div>
+                    
+                    <div class="input-area">
+                        <textarea id="messageInput" class="chat-textarea" placeholder="Type a message to transmit..." disabled autocomplete="off"></textarea>
+                        <button id="sendBtn" type="submit" class="chat-send-btn" disabled>Send</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
 
-    <!-- Include the strict ES5 telemetry gatekeeper -->
+    <!-- RETRO INBOX OVERLAY DIALOG -->
+    <div id="inboxPanel" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 500px; height: 80vh;">
+            <div class="title-bar">
+                <div class="title-stripes"></div>
+                <div class="close-box" onclick="toggleInboxPanel();">X</div>
+                <span class="title-text">Inbox & Mentions</span>
+            </div>
+            <div class="modal-body" style="flex-grow: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column;">
+                <div id="inboxList" style="display: flex; flex-direction: column; gap: 12px; font-family: inherit;">
+                    <!-- Dynamically populated -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RULES MODAL OVERLAY -->
+    <div id="rulesModal" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 420px;">
+            <div class="title-bar">
+                <div class="title-stripes"></div>
+                <div class="close-box" onclick="closeRulesModal();">X</div>
+                <span class="title-text">Workspace Rules</span>
+            </div>
+            <div class="modal-body">
+                <ul style="padding-left: 15px; margin-bottom: 20px; font-size: 13px; line-height: 1.6;">
+                    <li style="margin-bottom: 6px;"><strong>Global Cooldown:</strong> Dynamic 1-second transmission throttle is enforced.</li>
+                    <li style="margin-bottom: 6px;"><strong>Hardware Bindings:</strong> Strictly restricted to genuine monochrome devices. Spoofs trigger permanent ban vectors.</li>
+                    <li style="margin-bottom: 6px;"><strong>Edge Filtration:</strong> All text runs through OpenAI content moderation proxy prior to database storage.</li>
+                    <li style="margin-bottom: 6px;"><strong>No Promos:</strong> Advertising third-party assets will cause account muted flag.</li>
+                    <li><strong>Kindness Constraint:</strong> Robust debate is cleared, but physical harassment triggers lockout.</li>
+                </ul>
+                <div class="modal-btns">
+                    <button id="rulesAcceptBtn" class="sys-btn" onclick="acceptRules();" style="display: none; background: #000000; color: #ffffff;">I Accept Rules</button>
+                    <button class="sys-btn" onclick="closeRulesModal();">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TERMINAL SETTINGS OVERLAY -->
+    <div id="settingsModal" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 400px;">
+            <div class="title-bar">
+                <div class="title-stripes"></div>
+                <div class="close-box" onclick="closeSettingsModal();">X</div>
+                <span class="title-text">Terminal Settings</span>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px; font-weight: bold; gap: 8px;">
+                        <input type="checkbox" id="settingEnterToSend" style="width: 18px; height: 18px;" checked>
+                        <span>Press Enter to Send</span>
+                    </label>
+                    <div style="margin-left: 26px; font-size: 11px; color: #555555; margin-top: 4px;">
+                        Uncheck to insert new lines on Enter and rely purely on Send button.
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px; font-weight: bold; gap: 8px;">
+                        <input type="checkbox" id="settingEInkHighContrast" style="width: 18px; height: 18px;" checked disabled>
+                        <span>E-Ink High Contrast Mode</span>
+                    </label>
+                    <div style="margin-left: 26px; font-size: 11px; color: #555555; margin-top: 4px;">
+                        Locked active. Keeps rendering optimized for low-refresh-rate gray scales.
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px; border-top: 1px dashed #000000; padding-top: 15px; margin-bottom: 15px;">
+                    <div style="font-size: 11px; font-weight: bold; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">Security Settings</div>
+                    <button id="toggleChangePasswordBtn" class="sys-btn" onclick="toggleChangePasswordForm();" style="width: 100%; font-size: 10px; margin-bottom: 10px;">Change Password</button>
+                    
+                    <div id="changePasswordFormContainer" style="display: none; border: 2px solid #000000; padding: 12px; background: #fafafa;">
+                        <div style="margin-bottom: 6px;">
+                            <label style="font-size: 9px; font-weight: bold; text-transform: uppercase; display: block; margin-bottom: 2px;">Old Password</label>
+                            <input id="oldPasswordInput" type="password" class="modal-input" style="padding: 4px; font-size: 12px; margin-bottom: 0;" required>
+                        </div>
+                        <div style="margin-bottom: 6px;">
+                            <label style="font-size: 9px; font-weight: bold; text-transform: uppercase; display: block; margin-bottom: 2px;">New Password</label>
+                            <input id="newPasswordInput" type="password" class="modal-input" style="padding: 4px; font-size: 12px; margin-bottom: 0;" required>
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label style="font-size: 9px; font-weight: bold; text-transform: uppercase; display: block; margin-bottom: 2px;">Confirm New</label>
+                            <input id="confirmNewPasswordInput" type="password" class="modal-input" style="padding: 4px; font-size: 12px; margin-bottom: 0;" required>
+                        </div>
+                        <button class="sys-btn" onclick="submitChangePassword();" style="width: 100%; font-size: 10px; background: #000000; color: #ffffff;">Save Change</button>
+                        <div id="changePasswordStatus" style="display: none; margin-top: 6px; font-size: 10px; font-weight: bold; text-align: center; border: 1px solid #000000; padding: 4px; background: #ffffff;"></div>
+                    </div>
+                </div>
+
+                <div class="modal-btns">
+                    <button class="sys-btn" onclick="saveSettings();" style="background: #000000; color: #ffffff;">Save & Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+
+
+    <!-- Telemetry challenge hooks -->
     <script src="kindle-telemetry.js" type="text/javascript"></script>
 
     <script type="text/javascript">
-        (function () {
-            var isFakeKindle = (typeof window.fetch !== 'undefined' || typeof window.chrome !== 'undefined');
-            if (isFakeKindle) {
-                window.location.href = "tos.html?error=hardware_spoof";
-            }
-        })();
 
-        var activeUserId = null; // Stored username for greeting
-        var activeSessionToken = null; // Secure cryptographic token
+        // GLOBAL DYNAMIC STATE (ES5 Compatible)
+        var isLocal = window.location.hostname === "localhost" ||
+                      window.location.hostname === "127.0.0.1" ||
+                      window.location.protocol === "file:";
+        var apiBase = isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev";
+        var activeUserId = null;
+        var activeSessionToken = null;
         var activeDeviceFingerprint = null;
         var pollingIntervalId = null;
         var lastMessageHash = "";
-        var authMode = "login"; // "login" or "register"
-
-        // Cookie Utilities
-        function getCookie(name) {
-            var nameEQ = name + "=";
-            var ca = document.cookie.split(';');
-            for (var i = 0; i < ca.length; i++) {
-                var c = ca[i];
-                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-                if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+        var authMode = "login";
+        var activeReplyTarget = null;
+        var inboxMessages = [];
+        var isInboxOpen = false;
+        var dismissedNotificationTimestamps = [];
+        var bootWatchdogId = null;
+        try {
+            var stored = localStorage.getItem("inkchat_dismissed_notifications");
+            if (stored) {
+                dismissedNotificationTimestamps = JSON.parse(stored);
             }
-            return null;
+        } catch (e) {}
+
+
+
+        // CANCELLING ACTIVE CHAT REPLY
+        function cancelActiveReply() {
+            activeReplyTarget = null;
+            var bar = document.getElementById("replyPreviewBar");
+            if (bar) bar.style.display = "none";
+            var input = document.getElementById("messageInput");
+            if (input) input.placeholder = "Type a message to transmit...";
         }
 
-        function setHardCookie(name, value) {
-            var date = new Date();
-            date.setFullYear(date.getFullYear() + 10);
-            var expires = "; expires=" + date.toUTCString();
-            document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict; Secure";
+
+
+
+
+        // TERMINAL SETTINGS MANAGEMENT
+        function openSettingsModal() {
+            var val = localStorage.getItem("setting_enter_to_send") !== "false";
+            document.getElementById("settingEnterToSend").checked = val;
+            document.getElementById("settingsModal").style.display = "flex";
+        }
+        function closeSettingsModal() {
+            document.getElementById("settingsModal").style.display = "none";
+        }
+        function saveSettings() {
+            var checkbox = document.getElementById("settingEnterToSend");
+            localStorage.setItem("setting_enter_to_send", checkbox.checked ? "true" : "false");
+            closeSettingsModal();
+            showNotice("Settings Saved");
         }
 
-        function handleInkDeviceReady(fingerprint) {
-            activeDeviceFingerprint = fingerprint;
-            document.getElementById("deviceToken").textContent = activeDeviceFingerprint.substring(0, 15) + "...";
-            
-            // Session Check: If secure token cookie exists, bypass login overlay and jump to workspace
-            activeSessionToken = getCookie("inkchat_session_token");
-            activeUserId = getCookie("inkchat_username");
-            if (activeSessionToken && activeUserId) {
-                initializeChatWorkspace();
+        // RULES CONFIRMATION OVERLAYS
+        function openRulesModal() {
+            document.getElementById("rulesAcceptBtn").style.display = "none";
+            document.getElementById("rulesModal").style.display = "flex";
+        }
+        function closeRulesModal() {
+            document.getElementById("rulesModal").style.display = "none";
+        }
+        function acceptRules() {
+            localStorage.setItem("inkchat_rules_accepted", "true");
+            closeRulesModal();
+            showNotice("Rules Accepted");
+        }
+
+        // E-INK ZERO-SCROLL INBOX NAVIGATION
+        function toggleInboxPanel() {
+            var panel = document.getElementById("inboxPanel");
+            if (!panel) return;
+            if (panel.style.display === "none" || panel.style.display === "") {
+                panel.style.display = "flex";
+                renderInboxList();
             } else {
-                // Check persistent registration cookie to toggle form visibility
-                var hasRegisteredCookie = document.cookie.indexOf('has_registered=true') !== -1;
-                if (hasRegisteredCookie) {
-                    var tabRegister = document.getElementById("tabRegister");
-                    var authNotice = document.getElementById("authNotice");
-                    if (tabRegister) tabRegister.style.display = "none";
-                    if (authNotice) {
-                        authNotice.textContent = "An account is already linked to this browser. Please use the Login form to continue.";
-                        authNotice.style.display = "block";
-                    }
-                }
-                document.getElementById("authOverlay").style.display = "flex";
+                panel.style.display = "none";
             }
+        }
+
+        function dismissNotification(timestamp) {
+            dismissedNotificationTimestamps.push(timestamp);
+            try {
+                localStorage.setItem("inkchat_dismissed_notifications", JSON.stringify(dismissedNotificationTimestamps));
+            } catch (e) {}
+            
+            var filtered = [];
+            for (var i = 0; i < inboxMessages.length; i++) {
+                if (inboxMessages[i].timestamp !== timestamp) {
+                    filtered.push(inboxMessages[i]);
+                }
+            }
+            inboxMessages = filtered;
+            
+            var inboxBadge = document.getElementById("inboxBadge");
+            if (inboxBadge) {
+                inboxBadge.textContent = "Inbox (" + inboxMessages.length + ")";
+            }
+            renderInboxList();
+        }
+
+        function clearAllNotifications() {
+            for (var i = 0; i < inboxMessages.length; i++) {
+                dismissedNotificationTimestamps.push(inboxMessages[i].timestamp);
+            }
+            try {
+                localStorage.setItem("inkchat_dismissed_notifications", JSON.stringify(dismissedNotificationTimestamps));
+            } catch (e) {}
+            
+            inboxMessages = [];
+            var inboxBadge = document.getElementById("inboxBadge");
+            if (inboxBadge) {
+                inboxBadge.textContent = "Inbox (0)";
+            }
+            renderInboxList();
+            showNotice("Inbox Cleared");
+        }
+
+        function renderInboxList() {
+            var list = document.getElementById("inboxList");
+            if (!list) return;
+            list.innerHTML = "";
+            
+            if (inboxMessages.length === 0) {
+                list.innerHTML = "<div style='text-align: center; padding: 30px; font-style: italic; border: 2px dashed #000000;'>No new mentions or replies.</div>";
+                return;
+            }
+
+            var clearAllContainer = document.createElement("div");
+            clearAllContainer.style.textAlign = "right";
+            clearAllContainer.style.marginBottom = "10px";
+            var clearAllBtn = document.createElement("button");
+            clearAllBtn.textContent = "Clear All";
+            clearAllBtn.className = "sys-btn";
+            clearAllBtn.style.fontSize = "10px";
+            clearAllBtn.onclick = clearAllNotifications;
+            clearAllContainer.appendChild(clearAllBtn);
+            list.appendChild(clearAllContainer);
+            
+            for (var i = 0; i < inboxMessages.length; i++) {
+                (function(msg) {
+                    var item = document.createElement("div");
+                    item.style.border = "2px solid #000000";
+                    item.style.padding = "12px";
+                    item.style.background = "#ffffff";
+                    item.style.boxShadow = "2px 2px 0 #000000";
+                    item.style.marginBottom = "10px";
+                    
+                    var header = document.createElement("div");
+                    header.style.fontSize = "10px";
+                    header.style.marginBottom = "6px";
+                    header.style.color = "#555555";
+                    header.style.display = "flex";
+                    header.style.alignItems = "center";
+                    
+                    var typeTag = document.createElement("strong");
+                    typeTag.style.background = "#000000";
+                    typeTag.style.color = "#ffffff";
+                    typeTag.style.padding = "1px 5px";
+                    typeTag.style.marginRight = "6px";
+                    typeTag.style.textTransform = "uppercase";
+                    
+                    var isMention = msg.text.toLowerCase().indexOf("@" + activeUserId.toLowerCase()) !== -1;
+                    typeTag.textContent = isMention ? "Mention" : "Reply";
+                    
+                    var authorSpan = document.createElement("span");
+                    authorSpan.textContent = "from @" + msg.userId;
+                    
+                    header.appendChild(typeTag);
+                    header.appendChild(authorSpan);
+                    
+                    var textDiv = document.createElement("div");
+                    textDiv.style.fontSize = "13px";
+                    textDiv.style.lineHeight = "1.4";
+                    textDiv.style.fontWeight = "bold";
+                    textDiv.textContent = msg.text;
+                    
+                    var footer = document.createElement("div");
+                    footer.style.marginTop = "8px";
+                    footer.style.textAlign = "right";
+                    
+                    var dismissBtn = document.createElement("button");
+                    dismissBtn.textContent = "Dismiss";
+                    dismissBtn.className = "sys-btn";
+                    dismissBtn.style.fontSize = "10px";
+                    dismissBtn.style.marginRight = "8px";
+                    dismissBtn.onclick = function() {
+                        dismissNotification(msg.timestamp);
+                    };
+                    
+                    var focusBtn = document.createElement("button");
+                    focusBtn.textContent = "Focus";
+                    focusBtn.className = "sys-btn";
+                    focusBtn.style.fontSize = "10px";
+                    focusBtn.onclick = function() {
+                        document.getElementById("inboxPanel").style.display = "none";
+                        var targetEl = document.getElementById("msg-" + msg.timestamp);
+                        if (targetEl) {
+                            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            var origBg = targetEl.style.backgroundColor;
+                            targetEl.style.backgroundColor = "#ffffd0";
+                            setTimeout(function () {
+                                targetEl.style.backgroundColor = origBg;
+                            }, 1200);
+                        } else {
+                            showNotice("Message is out of active scroll memory.");
+                        }
+                    };
+                    
+                    footer.appendChild(dismissBtn);
+                    footer.appendChild(focusBtn);
+                    
+                    item.appendChild(header);
+                    item.appendChild(textDiv);
+                    item.appendChild(footer);
+                    list.appendChild(item);
+                })(inboxMessages[i]);
+            }
+        }
+
+
+
+        function isReservedUsername(username) {
+            var normalized = (username || "").toLowerCase();
+            return normalized === "admin" || normalized.indexOf("dev_") === 0 || normalized.indexOf("supporter_") === 0;
+        }
+
+        function restoreUserSession(callback) {
+            fetch(apiBase + "/api/session", {
+                method: "GET",
+                credentials: "include"
+            })
+            .then(function(res) {
+                return res.json();
+            })
+            .then(function(data) {
+                if (data && data.authenticated && data.username) {
+                    activeUserId = data.username;
+                    callback(true);
+                } else {
+                    activeUserId = null;
+                    activeSessionToken = null;
+                    callback(false);
+                }
+            })
+            .catch(function() {
+                callback(false);
+            });
+        }
+
+        // DEVICE REGISTRATION challenge responses
+        function handleInkDeviceReady(fingerprint) {
+            if (!fingerprint) {
+                return;
+            }
+
+            if (bootWatchdogId) {
+                clearTimeout(bootWatchdogId);
+                bootWatchdogId = null;
+            }
+
+            activeDeviceFingerprint = fingerprint;
+            var deviceTokenEl = document.getElementById("deviceToken");
+            if (deviceTokenEl) {
+                deviceTokenEl.textContent = activeDeviceFingerprint.substring(0, 15) + "...";
+            }
+            
+            // Loopback flag validation
+            var isLocalhost = window.location.hostname === "localhost" || 
+                              window.location.hostname === "127.0.0.1" || 
+                              window.location.protocol === "file:";
+            var loopbackStatusEl = document.getElementById("loopbackStatus");
+            if (loopbackStatusEl) {
+                if (isLocalhost) {
+                    loopbackStatusEl.textContent = "Active Loopback (Exempt)";
+                    loopbackStatusEl.style.color = "green";
+                } else {
+                    loopbackStatusEl.textContent = "Inactive (Strict)";
+                }
+            }
+
+            restoreUserSession(function(isAuthenticated) {
+                if (isAuthenticated) {
+                    initializeChatWorkspace();
+                } else {
+                    var hasRegisteredFlag = localStorage.getItem("inkchat_has_registered") === "true";
+                    if (hasRegisteredFlag) {
+                        var tabRegister = document.getElementById("tabRegister");
+                        var authNotice = document.getElementById("authNotice");
+                        if (tabRegister) tabRegister.style.display = "none";
+                        if (authNotice) {
+                            authNotice.textContent = "An account is already linked to this browser. Please use the Login form to continue.";
+                            authNotice.style.display = "block";
+                        }
+                    }
+                    document.getElementById("authOverlay").style.display = "flex";
+                }
+            });
         }
 
         // Bind to custom event dispatched by kindle-telemetry.js
@@ -463,7 +1031,37 @@
             });
         }
 
-        // Tab and Layout Management inside Auth Overlay
+        function beginBootstrapWatchdog() {
+            if (window.InkDeviceFingerprint && !activeDeviceFingerprint) {
+                handleInkDeviceReady(window.InkDeviceFingerprint);
+                return;
+            }
+
+            bootWatchdogId = setTimeout(function() {
+                if (activeDeviceFingerprint) {
+                    return;
+                }
+
+                if (window.InkDeviceFingerprint) {
+                    handleInkDeviceReady(window.InkDeviceFingerprint);
+                    return;
+                }
+
+                var authOverlay = document.getElementById("authOverlay");
+                var authNotice = document.getElementById("authNotice");
+                if (authNotice) {
+                    authNotice.textContent = "Device bootstrap stalled. Reload the page after the local backend is configured.";
+                    authNotice.style.display = "block";
+                }
+                if (authOverlay) {
+                    authOverlay.style.display = "flex";
+                }
+            }, 1500);
+        }
+
+        beginBootstrapWatchdog();
+
+        // Switch login/register forms
         function switchAuthTab(mode) {
             authMode = mode;
             var tabLogin = document.getElementById("tabLogin");
@@ -497,9 +1095,7 @@
             document.getElementById("tosModal").style.display = "none";
         }
 
-        /**
-         * Authentication Handler
-         */
+        // SUBMITTING AUTH REQUESTS
         function handleAuthSubmit(event) {
             if (event.preventDefault) event.preventDefault();
 
@@ -514,22 +1110,25 @@
 
             if (!username || !password) return false;
 
-            // Enforce username constraints (alphanumeric only, no spaces)
             var cleanUsername = username.replace(/[^a-zA-Z0-9_]/g, "");
             if (cleanUsername !== username) {
-                authError.textContent = "Username must be alphanumeric (letters, numbers, underscores) only.";
+                authError.textContent = "Username must be alphanumeric only.";
                 authError.style.display = "block";
                 return false;
             }
 
-            // Registration Check: Verify Terms agreement
+            if (authMode === "register" && isReservedUsername(username)) {
+                authError.textContent = "That username is reserved.";
+                authError.style.display = "block";
+                return false;
+            }
+
             if (authMode === "register" && !tosCheck.checked) {
-                authError.textContent = "You must agree to the Terms of Use to register an account.";
+                authError.textContent = "You must agree to the Terms of Use to register.";
                 authError.style.display = "block";
                 return false;
             }
 
-            // Lock inputs
             usernameInput.disabled = true;
             passwordInput.disabled = true;
             authBtn.disabled = true;
@@ -545,13 +1144,8 @@
                         authError.style.display = "block";
                     } else if (response && response.status === "SUCCESS") {
                         activeUserId = response.username;
-                        activeSessionToken = response.token;
+                        activeSessionToken = response.token || null;
                         
-                        // Cryptographic Session Token Cookie Storage
-                        setHardCookie("inkchat_session_token", activeSessionToken);
-                        setHardCookie("inkchat_username", activeUserId); // Saved strictly for UI greeting
-                        
-                        // Save browser-generated unique tracking ID permanently
                         if (response.ink_device_id) {
                             localStorage.setItem("ink_device_id", response.ink_device_id);
                         }
@@ -568,12 +1162,9 @@
                         authError.style.display = "block";
                     } else if (response && response.status === "SUCCESS") {
                         activeUserId = response.username;
-                        activeSessionToken = response.token;
+                        activeSessionToken = response.token || null;
+                        localStorage.setItem("inkchat_has_registered", "true");
                         
-                        setHardCookie("inkchat_session_token", activeSessionToken);
-                        setHardCookie("inkchat_username", activeUserId);
-                        
-                        // Save browser-generated unique tracking ID permanently
                         if (response.ink_device_id) {
                             localStorage.setItem("ink_device_id", response.ink_device_id);
                         }
@@ -593,20 +1184,43 @@
             return false;
         }
 
+        // INITIALIZE COMPLETED WORKSPACE CONTEXT
         function initializeChatWorkspace() {
-            // Display username in metadata
-            document.getElementById("userIdDisplay").textContent = activeUserId;
+            if (pollingIntervalId) {
+                clearInterval(pollingIntervalId);
+                pollingIntervalId = null;
+            }
 
-            // Display workspace panel
-            document.getElementById("mainWorkspace").style.display = "block";
+            var userIdDisplayEl = document.getElementById("userIdDisplay");
+            if (userIdDisplayEl) {
+                userIdDisplayEl.textContent = activeUserId;
+            }
 
-            // Enable inputs
+            document.getElementById("mainWorkspace").style.display = "flex";
             document.getElementById("messageInput").removeAttribute("disabled");
             document.getElementById("sendBtn").removeAttribute("disabled");
 
-            appendSystemMessage("Workspace loaded. Authenticated as: " + activeUserId);
+            appendSystemMessage("Secure Terminal Tunnel active. Authenticated as @" + activeUserId);
 
-            // Launch the 5-second polling engine
+            // Pop open rules modal automatically on first setup
+            var acceptedRules = localStorage.getItem("inkchat_rules_accepted") === "true";
+            if (!acceptedRules) {
+                document.getElementById("rulesAcceptBtn").style.display = "inline-flex";
+                document.getElementById("rulesModal").style.display = "flex";
+            }
+
+            // Keyboard Send listener setup (Press Enter to Send setting)
+            var input = document.getElementById("messageInput");
+            input.onkeydown = function (e) {
+                if (e.keyCode === 13 && !e.shiftKey) {
+                    var settingVal = localStorage.getItem("setting_enter_to_send") !== "false";
+                    if (settingVal) {
+                        e.preventDefault();
+                        handleMessageSubmit(e);
+                    }
+                }
+            };
+
             pollMessages();
             pollingIntervalId = setInterval(pollMessages, 5000);
         }
@@ -619,7 +1233,7 @@
             var meta = document.createElement("div");
             meta.className = "msg-meta";
             var label = document.createElement("strong");
-            label.textContent = "[System]";
+            label.textContent = "[System Tunnel]";
             meta.appendChild(label);
 
             var textDiv = document.createElement("div");
@@ -631,10 +1245,7 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        /**
-         * E-Ink Polling Routine
-         * SECURE HARDENING: Constructs DOM programmatically via textContent to fully block XSS.
-         */
+        // POLL MESSAGE LOOP
         function pollMessages() {
             if (!window.InkChatEngine || typeof window.InkChatEngine.getMessages !== "function") {
                 return;
@@ -642,7 +1253,7 @@
 
             window.InkChatEngine.getMessages(function(err, messages) {
                 if (err) {
-                    console.error("Failed to pull messages: " + err.message);
+                    console.error("Message pull error: " + err.message);
                     return;
                 }
 
@@ -656,12 +1267,44 @@
                 }
                 lastMessageHash = currentHash;
 
-                var chatBox = document.getElementById("chatBox");
+                // Scan for replies/mentions targeting us
+                var newInboxMessages = [];
+                var myMasked = activeUserId;
+                if (activeUserId && activeUserId.length > 6) {
+                    myMasked = activeUserId.substring(0, 5) + "***" + activeUserId.substring(activeUserId.length - 2);
+                }
                 
-                // Clear the chatBox DOM container securely
+                for (var j = 0; j < messages.length; j++) {
+                    try {
+                        var m = JSON.parse(messages[j]);
+                        
+                        var isDismissed = false;
+                        for (var d = 0; d < dismissedNotificationTimestamps.length; d++) {
+                            if (dismissedNotificationTimestamps[d] === m.timestamp) {
+                                isDismissed = true;
+                                break;
+                            }
+                        }
+                        if (isDismissed) continue;
+
+                        var isReplyToUs = m.replyTo && (m.replyTo.userId === activeUserId || m.replyTo.userId === myMasked);
+                        var isMentionOfUs = activeUserId && m.text.toLowerCase().indexOf("@" + activeUserId.toLowerCase()) !== -1;
+                        
+                        if (isReplyToUs || isMentionOfUs) {
+                            newInboxMessages.push(m);
+                        }
+                    } catch (e) {}
+                }
+                inboxMessages = newInboxMessages;
+                
+                var inboxBadge = document.getElementById("inboxBadge");
+                if (inboxBadge) {
+                    inboxBadge.textContent = "Inbox (" + inboxMessages.length + ")";
+                }
+
+                var chatBox = document.getElementById("chatBox");
                 chatBox.innerHTML = "";
 
-                // Reverse the array to render in chronological order (oldest -> newest at bottom)
                 var chronMessages = messages.slice().reverse();
 
                 for (var i = 0; i < chronMessages.length; i++) {
@@ -669,69 +1312,136 @@
                         var msgObj = JSON.parse(chronMessages[i]);
                         var timeString = new Date(msgObj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         
-                        // Mask evaluation: determine if it's the current user sending
-                        // Short Username Fix: Only mask outgoing ID if length > 6, mirroring the backend
                         var isMyOutgoing = false;
-                        var myMasked = activeUserId;
-                        if (activeUserId.length > 6) {
-                            myMasked = activeUserId.substring(0, 5) + "***" + activeUserId.substring(activeUserId.length - 2);
-                        }
-
                         if (msgObj.userId === myMasked) {
                             isMyOutgoing = true;
                         }
 
-                        // Programmatic DOM Construction - XSS Prevention (Strict TextContent usage)
+                        // Theme evaluations
+                        var isDeveloper = msgObj.role === "admin";
+                        var isSupporter = false;
+
                         var bubble = document.createElement("div");
-                        bubble.className = isMyOutgoing ? "message-bubble message-outgoing" : "message-bubble message-incoming";
+                        bubble.id = "msg-" + msgObj.timestamp;
+                        
+                        var themeClass = isMyOutgoing ? "message-bubble message-outgoing" : "message-bubble message-incoming";
+                        if (isDeveloper) themeClass += " developer";
+                        if (isSupporter) themeClass += " supporter";
+                        bubble.className = themeClass;
+                        bubble.style.transition = "background-color 0.8s ease";
 
                         var meta = document.createElement("div");
                         meta.className = "msg-meta";
 
+                        // Build crown for supporters
+                        if (isSupporter) {
+                            var crownSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                            crownSvg.setAttribute("class", "supporter-crown");
+                            crownSvg.setAttribute("viewBox", "0 0 24 24");
+                            crownSvg.innerHTML = '<path d="M2 22h20V10l-4 4-4-8-4 8-4-4z"/>';
+                            meta.appendChild(crownSvg);
+                        }
+
+                        // Build dev badges
+                        if (isDeveloper) {
+                            var devBadge = document.createElement("span");
+                            devBadge.className = "dev-badge";
+                            devBadge.textContent = "DEV";
+                            meta.appendChild(devBadge);
+                        }
+
                         var userLabel = document.createElement("strong");
-                        userLabel.textContent = msgObj.userId; // Secure text insertion
+                        userLabel.textContent = msgObj.userId;
 
                         var timeLabel = document.createElement("span");
                         timeLabel.className = "msg-time";
-                        timeLabel.textContent = timeString; // Secure text insertion
+                        timeLabel.textContent = timeString;
 
                         var replyLink = document.createElement("span");
-                        replyLink.style.marginLeft = "10px";
+                        replyLink.style.marginLeft = "6px";
                         replyLink.style.textDecoration = "underline";
                         replyLink.style.cursor = "pointer";
                         replyLink.style.fontWeight = "bold";
                         replyLink.textContent = "[Reply]";
-                        (function (userToReply) {
+                        (function (userToReply, msgTimestamp, msgText) {
                             replyLink.onclick = function () {
+                                activeReplyTarget = {
+                                    userId: userToReply,
+                                    timestamp: msgTimestamp,
+                                    text: msgText
+                                };
+                                document.getElementById("replyUserLabel").textContent = userToReply;
+                                document.getElementById("replyTextLabel").textContent = msgText.length > 40 ? msgText.substring(0, 40) + "..." : msgText;
+                                document.getElementById("replyPreviewBar").style.display = "block";
+                                
                                 var input = document.getElementById("messageInput");
-                                input.value = "[Reply to @" + userToReply + "]: ";
+                                input.placeholder = "Type your reply...";
                                 input.focus();
                             };
-                        })(msgObj.userId);
+                        })(msgObj.userId, msgObj.timestamp, msgObj.text);
 
                         meta.appendChild(userLabel);
                         meta.appendChild(replyLink);
                         meta.appendChild(timeLabel);
 
-                        var textDiv = document.createElement("div");
-                        textDiv.textContent = msgObj.text; // SECURE: textContent completely disables HTML/JS execution!
-
                         bubble.appendChild(meta);
+
+                        // Embed references
+                        if (msgObj.replyTo) {
+                            var replyRef = document.createElement("div");
+                            replyRef.style.borderLeft = "3px solid #000000";
+                            replyRef.style.paddingLeft = "8px";
+                            replyRef.style.marginBottom = "6px";
+                            replyRef.style.fontSize = "11px";
+                            replyRef.style.color = isDeveloper ? "#cccccc" : "#555555";
+                            replyRef.style.cursor = "pointer";
+                            replyRef.style.background = isDeveloper ? "#222222" : "#f5f5f5";
+                            replyRef.style.padding = "4px 8px";
+                            replyRef.title = "Click to jump to original message";
+                            
+                            var refStrong = document.createElement("strong");
+                            refStrong.textContent = "@" + msgObj.replyTo.userId + ": ";
+                            
+                            var refSpan = document.createElement("span");
+                            refSpan.style.fontStyle = "italic";
+                            refSpan.textContent = msgObj.replyTo.text.length > 30 ? msgObj.replyTo.text.substring(0, 30) + "..." : msgObj.replyTo.text;
+                            
+                            replyRef.appendChild(refStrong);
+                            replyRef.appendChild(refSpan);
+                            
+                            (function (targetTimestamp) {
+                                replyRef.onclick = function () {
+                                    var targetEl = document.getElementById("msg-" + targetTimestamp);
+                                    if (targetEl) {
+                                        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        var origBg = targetEl.style.backgroundColor;
+                                        targetEl.style.backgroundColor = isDeveloper ? "#444444" : "#ffffd0";
+                                        setTimeout(function () {
+                                            targetEl.style.backgroundColor = origBg;
+                                        }, 1200);
+                                    } else {
+                                        alert("Original message is out of focus memory.");
+                                    }
+                                };
+                            })(msgObj.replyTo.timestamp);
+                            
+                            bubble.appendChild(replyRef);
+                        }
+
+                        var textDiv = document.createElement("div");
+                        textDiv.textContent = msgObj.text; // programmatically protected against XSS
+
                         bubble.appendChild(textDiv);
                         chatBox.appendChild(bubble);
 
-                    } catch (e) {
-                        // Skip corrupted frames
-                    }
+                    } catch (e) {}
                 }
                 
                 chatBox.scrollTop = chatBox.scrollHeight;
             });
         }
 
-        /**
-         * Temporary High-Contrast On-Screen Notice for E-Ink Displays
-         */
+        // SYSTEM NOTICES
         function showNotice(text) {
             var notice = document.getElementById("tempNotice");
             if (!notice) {
@@ -747,7 +1457,7 @@
                 notice.style.outline = "2px solid #000000";
                 notice.style.padding = "10px 20px";
                 notice.style.fontFamily = "inherit";
-                notice.style.fontSize = "14px";
+                notice.style.fontSize = "13px";
                 notice.style.fontWeight = "bold";
                 notice.style.textTransform = "uppercase";
                 notice.style.letterSpacing = "1px";
@@ -759,7 +1469,6 @@
             notice.textContent = text;
             notice.style.display = "block";
 
-            // Clear any active timeout to prevent race condition
             if (window.noticeTimeoutId) {
                 clearTimeout(window.noticeTimeoutId);
             }
@@ -768,46 +1477,41 @@
             }, 3000);
         }
 
-        /**
-         * Core Message Transmission Routine
-         */
+        // HANDSHAKE MESSAGE DISPATCH
         function handleMessageSubmit(event) {
-            if (event.preventDefault) event.preventDefault();
+            if (event && event.preventDefault) event.preventDefault();
             
             var input = document.getElementById("messageInput");
             var sendBtn = document.getElementById("sendBtn");
             var text = input.value.trim();
             if (!text) return false;
 
-            // Lock inputs to prevent double clicks on slow e-ink touch modules
             input.disabled = true;
             sendBtn.disabled = true;
 
             if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
-                // Pass secure cryptographic activeSessionToken and unique browser-generated tracking ID
                 var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
-                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, function(err, response) {
-                    // Unlock fields
+                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
                     input.disabled = false;
                     sendBtn.disabled = false;
 
                     if (err) {
                         if (err.status === 429) {
-                            showNotice("Slow down! Chat is moving too fast.");
+                            showNotice("Slow down! Chat moving too fast.");
                         } else if (err.status === 409) {
                             showNotice("Duplicate message blocked.");
                         } else {
-                            alert("Message dropped: " + err.message);
+                            alert("Transmission dropped: " + err.message);
                         }
                         return;
                     }
 
                     if (response && response.status === "ERROR") {
-                        alert(response.message || "Message blocked by safety filters.");
+                        alert(response.message || "Message blocked by filter regulations.");
                         return;
                     }
 
-                    // Clear and query immediately to keep UI highly responsive
+                    cancelActiveReply();
                     input.value = "";
                     pollMessages();
                     input.focus();
@@ -821,9 +1525,27 @@
         }
 
         function handleSignOut() {
-            document.cookie = "inkchat_session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict; Secure";
-            document.cookie = "inkchat_username=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict; Secure";
-            window.location.reload();
+            fetch(apiBase + "/api/logout", {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    allSessions: true,
+                    sessionToken: activeSessionToken
+                })
+            })
+            .then(function() {
+                activeSessionToken = null;
+                activeUserId = null;
+                window.location.reload();
+            })
+            .catch(function() {
+                activeSessionToken = null;
+                activeUserId = null;
+                window.location.reload();
+            });
         }
 
         function toggleChangePasswordForm() {
@@ -831,7 +1553,7 @@
             var btn = document.getElementById("toggleChangePasswordBtn");
             if (container.style.display === "none") {
                 container.style.display = "block";
-                btn.textContent = "Cancel Password Change";
+                btn.textContent = "Cancel Change";
             } else {
                 container.style.display = "none";
                 btn.textContent = "Change Password";
@@ -859,30 +1581,34 @@
 
             if (newPass !== confirmNewPass) {
                 statusDiv.style.color = "red";
-                statusDiv.textContent = "New passwords do not match.";
+                statusDiv.textContent = "Passwords do not match.";
                 statusDiv.style.display = "block";
                 return;
             }
 
             if (newPass.length < 4) {
                 statusDiv.style.color = "red";
-                statusDiv.textContent = "Password must be at least 4 characters.";
+                statusDiv.textContent = "Min 4 characters required.";
                 statusDiv.style.display = "block";
                 return;
             }
 
-            var isLocal = window.location.hostname === "localhost" || 
-                          window.location.hostname === "127.0.0.1" || 
-                          window.location.protocol === "file:";
-            var apiBase = isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev";
             var xhr = new XMLHttpRequest();
             xhr.open("POST", apiBase + "/api/change-password", true);
+            xhr.withCredentials = true;
             xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
             xhr.onreadystatechange = function () {
                 if (xhr.readyState === 4) {
                     if (xhr.status === 200) {
-                        statusDiv.style.color = "#000000";
-                        statusDiv.textContent = "Password changed successfully!";
+                        var resObj = null;
+                        try {
+                            resObj = JSON.parse(xhr.responseText);
+                        } catch (e) {}
+                        if (resObj && resObj.token) {
+                            activeSessionToken = resObj.token;
+                        }
+                        statusDiv.style.color = "green";
+                        statusDiv.textContent = "Changed successfully!";
                         statusDiv.style.display = "block";
                         
                         setTimeout(function () {

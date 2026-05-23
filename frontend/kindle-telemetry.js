@@ -16,12 +16,9 @@
                   window.location.hostname === "127.0.0.1" || 
                   window.location.protocol === "file:";
     var CONFIG = {
-        apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev", // Auto-detect local dev server
-        checkHardwareEndpoint: "/api/check-hardware",
-        moderateContentEndpoint: "/api/moderate-content",
-        registerDeviceEndpoint: "/api/register-device",
-        cookieName: "ink_device_id", // Renamed to ink_device_id
-        currentUserId: null // Set dynamically by application context
+        apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev",
+        cookieName: "ink_device_id",
+        currentUserId: null
     };
 
     /**
@@ -403,6 +400,7 @@
         }
 
         xhr.open("POST", url, true);
+        xhr.withCredentials = true;
         xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
 
         xhr.onreadystatechange = function () {
@@ -502,46 +500,6 @@
     }
 
     /**
-     * Public Submission Moderation Interceptor Shield
-     */
-    window.InkModerationShield = {
-        moderate: function (textInput, onSuccessCallback, onFailureCallback) {
-            dispatchXhrPost(CONFIG.apiBase + CONFIG.moderateContentEndpoint, { text: textInput }, function (err, response) {
-                if (err) {
-                    alert("Network error. Could not reach content moderation services.");
-                    if (onFailureCallback) onFailureCallback("network-error");
-                    return;
-                }
-
-                if (response && response.flagged) {
-                    alert("Content violation blocked: Your input contains language flagged by the safety engine.");
-                    if (onFailureCallback) onFailureCallback("content-flagged");
-                } else {
-                    if (onSuccessCallback) onSuccessCallback();
-                }
-            });
-        }
-    };
-
-    /**
-     * Administrative Registration API
-     */
-    window.InkDeviceManager = {
-        registerCurrentDevice: function (userId, callback) {
-            syncLocalStorageAndCookie(function (token, err) {
-                if (err) {
-                    if (callback) callback(err, null);
-                    return;
-                }
-                dispatchXhrPost(CONFIG.apiBase + CONFIG.registerDeviceEndpoint, {
-                    fingerprint: token,
-                    userId: userId
-                }, callback);
-            });
-        }
-    };
-
-    /**
      * Core Messaging Transmission & Pull API
      * Written strictly in ES5 JavaScript using raw XHR protocols.
      */
@@ -562,11 +520,12 @@
             };
             dispatchXhrPost(CONFIG.apiBase + "/api/register", payload, callback);
         },
-        sendMessage: function (text, sessionToken, deviceId, callback) {
+        sendMessage: function (text, sessionToken, deviceId, replyTo, callback) {
             var payload = {
                 text: text,
                 sessionToken: sessionToken,
-                ink_device_id: deviceId
+                ink_device_id: deviceId,
+                replyTo: replyTo
             };
             dispatchXhrPost(CONFIG.apiBase + "/api/send-message", payload, callback);
         },
@@ -591,6 +550,7 @@
 
             // Perform standard asynchronous GET query
             xhr.open("GET", CONFIG.apiBase + "/api/get-messages", true);
+            xhr.withCredentials = true;
             
             xhr.onreadystatechange = function () {
                 if (xhr.readyState === 4) {
@@ -621,8 +581,7 @@
             return;
         }
 
-        // Cryptographic session token cookie linkage inside initial hardware handshake payload
-        CONFIG.currentUserId = readCookie("inkchat_session_token");
+        CONFIG.currentUserId = null;
 
         syncLocalStorageAndCookie(function (token, err) {
             // Bypass verification challenge: Immediately proceed with compiled token to allow standard access

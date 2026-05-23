@@ -381,7 +381,10 @@
     <div id="mainDashboard" class="dashboard-container">
         <div class="dash-header">
             <h1>InkChat Operations Command Center</h1>
-            <div class="status-badge">Secure Session Active</div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="status-badge">Secure Session Active</div>
+                <button class="ban-btn-inline" style="padding: 8px 12px;" onclick="endAdminSession();">End Session</button>
+            </div>
         </div>
         
         <div class="dash-grid">
@@ -403,7 +406,7 @@
                     <div class="data-section">
                         <h4>Account Authentication Status</h4>
                         <div class="data-item" style="font-family: inherit;">
-                            <span>Credential integrity verified. Status:</span>
+                            <span id="sessionCountLabel">Credential integrity verified. Active sessions: 0</span>
                             <button id="banAccountBtn" class="ban-btn-inline" style="padding: 6px 12px;">BAN ACCOUNT</button>
                         </div>
                     </div>
@@ -461,7 +464,7 @@
     </div>
 
     <script type="text/javascript">
-        var adminToken = localStorage.getItem("adminToken") || "";
+        var adminToken = "";
         var activeBanType = "account";
         var isLocal = window.location.hostname === "localhost" || 
                       window.location.hostname === "127.0.0.1" || 
@@ -469,6 +472,7 @@
         var CONFIG = {
             apiBase: isLocal ? "http://localhost:8787" : "https://slatechat-proxy.kindlemodshelf.workers.dev"
         };
+        var adminChatIntervalId = null;
 
         function logToConsole(message) {
             var log = document.getElementById("consoleLog");
@@ -480,15 +484,65 @@
             log.scrollTop = log.scrollHeight;
         }
 
-        // Check if session is already active
         window.onload = function() {
-            if (adminToken) {
-                document.getElementById("authGate").style.display = "none";
-                document.getElementById("mainDashboard").style.display = "block";
-                logToConsole("Administrator Session Restored from Cache.");
-                initializeAdminChat();
-            }
+            restoreAdminSession();
         };
+
+        function buildAdminHeaders(extra) {
+            var headers = extra || {};
+            if (adminToken) {
+                headers["X-Admin-Token"] = adminToken;
+            }
+            return headers;
+        }
+
+        function showAdminDashboard() {
+            if (adminChatIntervalId) {
+                clearInterval(adminChatIntervalId);
+                adminChatIntervalId = null;
+            }
+            document.getElementById("authGate").style.display = "none";
+            document.getElementById("mainDashboard").style.display = "block";
+            initializeAdminChat();
+        }
+
+        function restoreAdminSession() {
+            fetch(CONFIG.apiBase + "/api/admin/session", {
+                method: "GET",
+                credentials: "include"
+            })
+            .then(function(res) {
+                return res.json();
+            })
+            .then(function(data) {
+                if (data && data.authenticated) {
+                    showAdminDashboard();
+                    logToConsole("Administrator Session Restored from Secure Cookie.");
+                }
+            })
+            .catch(function() {});
+        }
+
+        function endAdminSession() {
+            fetch(CONFIG.apiBase + "/api/logout", {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    adminToken: adminToken
+                })
+            })
+            .then(function() {
+                adminToken = "";
+                window.location.reload();
+            })
+            .catch(function() {
+                adminToken = "";
+                window.location.reload();
+            });
+        }
 
         function handleAdminAuth(event) {
             if (event.preventDefault) event.preventDefault();
@@ -498,6 +552,7 @@
 
             fetch(CONFIG.apiBase + "/api/admin/login", {
                 method: "POST",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/json"
                 },
@@ -515,13 +570,10 @@
                 }
             })
             .then(function(data) {
-                if (data && data.token) {
-                    adminToken = data.token;
-                    localStorage.setItem("adminToken", adminToken);
-                    document.getElementById("authGate").style.display = "none";
-                    document.getElementById("mainDashboard").style.display = "block";
+                if (data && data.status === "SUCCESS") {
+                    adminToken = data.token || "";
+                    showAdminDashboard();
                     logToConsole("Administrator Session Established.");
-                    initializeAdminChat();
                 } else {
                     throw new Error("Malformed session payload.");
                 }
@@ -563,9 +615,8 @@
 
             fetch(CONFIG.apiBase + "/api/admin/user-lookup?username=" + encodeURIComponent(username), {
                 method: "GET",
-                headers: {
-                    "X-Admin-Token": adminToken
-                }
+                credentials: "include",
+                headers: buildAdminHeaders({})
             })
             .then(function(res) {
                 if (res.status === 200) {
@@ -594,6 +645,7 @@
 
         function renderInvestigateResult(data) {
             document.getElementById("resUsername").textContent = data.username;
+            document.getElementById("sessionCountLabel").textContent = "Credential integrity verified. Active sessions: " + (data.activeSessionCount || 0);
             
             var statusTag = document.getElementById("resStatus");
             statusTag.textContent = data.passwordHashStatus;
@@ -614,12 +666,44 @@
                 banAccBtn.parentNode.appendChild(muteAccBtn);
             }
 
+            var resetPassBtn = document.getElementById("resetPasswordBtn");
+            if (!resetPassBtn) {
+                resetPassBtn = document.createElement("button");
+                resetPassBtn.id = "resetPasswordBtn";
+                resetPassBtn.className = "ban-btn-inline";
+                resetPassBtn.style.marginLeft = "10px";
+                resetPassBtn.style.borderColor = "var(--accent-blue)";
+                resetPassBtn.style.color = "var(--accent-blue)";
+                resetPassBtn.style.background = "rgba(59, 130, 246, 0.05)";
+                resetPassBtn.style.padding = "6px 12px";
+                resetPassBtn.textContent = "RESET PASSWORD";
+                banAccBtn.parentNode.appendChild(resetPassBtn);
+            }
+
+            var revokeSessionsBtn = document.getElementById("revokeSessionsBtn");
+            if (!revokeSessionsBtn) {
+                revokeSessionsBtn = document.createElement("button");
+                revokeSessionsBtn.id = "revokeSessionsBtn";
+                revokeSessionsBtn.className = "ban-btn-inline";
+                revokeSessionsBtn.style.marginLeft = "10px";
+                revokeSessionsBtn.style.borderColor = "#f59e0b";
+                revokeSessionsBtn.style.color = "#f59e0b";
+                revokeSessionsBtn.style.background = "rgba(245, 158, 11, 0.05)";
+                revokeSessionsBtn.style.padding = "6px 12px";
+                revokeSessionsBtn.textContent = "REVOKE SESSIONS";
+                banAccBtn.parentNode.appendChild(revokeSessionsBtn);
+            }
+
             if (data.passwordHashStatus === 'BANNED') {
                 banAccBtn.style.display = "none";
                 muteAccBtn.style.display = "none";
+                resetPassBtn.style.display = "none";
+                revokeSessionsBtn.style.display = "none";
             } else {
                 banAccBtn.style.display = "block";
                 muteAccBtn.style.display = "block";
+                resetPassBtn.style.display = "block";
+                revokeSessionsBtn.style.display = "block";
                 banAccBtn.onclick = function() {
                     if (confirm("Are you sure you want to permanently BAN user account " + data.username + "?")) {
                         banTarget('account', data.username);
@@ -627,6 +711,14 @@
                 };
                 muteAccBtn.onclick = function() {
                     muteUserPrompt(data.username);
+                };
+                resetPassBtn.onclick = function() {
+                    resetUserPasswordPrompt(data.username);
+                };
+                revokeSessionsBtn.onclick = function() {
+                    if (confirm("Revoke every active session for user " + data.username + "?")) {
+                        revokeUserSessions(data.username);
+                    }
                 };
             }
 
@@ -736,10 +828,10 @@
         function banTarget(type, target) {
             fetch(CONFIG.apiBase + "/api/admin/ban", {
                 method: "POST",
-                headers: {
+                credentials: "include",
+                headers: buildAdminHeaders({
                     "Content-Type": "application/json",
-                    "X-Admin-Token": adminToken
-                },
+                }),
                 body: JSON.stringify({ type: type, target: target })
             })
             .then(function(res) {
@@ -767,6 +859,35 @@
             });
         }
 
+        function revokeUserSessions(username) {
+            fetch(CONFIG.apiBase + "/api/admin/revoke-sessions", {
+                method: "POST",
+                credentials: "include",
+                headers: buildAdminHeaders({
+                    "Content-Type": "application/json"
+                }),
+                body: JSON.stringify({
+                    username: username
+                })
+            })
+            .then(function(res) {
+                return res.json().then(function(data) {
+                    if (res.status !== 200) {
+                        throw new Error(data.message || "Failed to revoke sessions.");
+                    }
+                    return data;
+                });
+            })
+            .then(function(data) {
+                logToConsole(data.message || ("Revoked sessions for " + username));
+                alert(data.message || "Sessions revoked.");
+                investigateUser();
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
+        }
+
         function executeBanDirect() {
             var target = document.getElementById("banTarget").value.trim();
             if (!target) return;
@@ -779,13 +900,14 @@
         // --- Administrative Live Chat Hub Integrations ---
         function initializeAdminChat() {
             pollAdminMessages();
-            setInterval(pollAdminMessages, 5000);
+            adminChatIntervalId = setInterval(pollAdminMessages, 5000);
         }
 
         var lastAdminMsgHash = "";
         function pollAdminMessages() {
             fetch(CONFIG.apiBase + "/api/get-messages", {
-                method: "GET"
+                method: "GET",
+                credentials: "include"
             })
             .then(function(res) {
                 return res.json();
@@ -812,7 +934,7 @@
                         bubble.style.padding = "8px 12px";
                         bubble.style.borderRadius = "6px";
                         bubble.style.marginBottom = "10px";
-                        bubble.style.background = msgObj.userId === "Admin" ? "rgba(139, 92, 246, 0.1)" : "rgba(255, 255, 255, 0.02)";
+                        bubble.style.background = msgObj.role === "admin" ? "rgba(139, 92, 246, 0.1)" : "rgba(255, 255, 255, 0.02)";
                         bubble.style.fontSize = "13px";
 
                         var meta = document.createElement("div");
@@ -825,7 +947,7 @@
 
                         var leftSpan = document.createElement("span");
                         var userStrong = document.createElement("strong");
-                        userStrong.style.color = msgObj.userId === "Admin" ? "var(--accent-purple)" : "var(--text-primary)";
+                        userStrong.style.color = msgObj.role === "admin" ? "var(--accent-purple)" : "var(--text-primary)";
                         userStrong.textContent = msgObj.userId;
                         leftSpan.appendChild(userStrong);
 
@@ -860,7 +982,7 @@
 
                         controls.appendChild(delBtn);
 
-                        if (msgObj.userId !== "Admin") {
+                        if (msgObj.role !== "admin") {
                             var muteBtn = document.createElement("button");
                             muteBtn.className = "ban-btn-inline";
                             muteBtn.style.padding = "3px 8px";
@@ -905,12 +1027,14 @@
 
             fetch(CONFIG.apiBase + "/api/send-message", {
                 method: "POST",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     text: text,
-                    sessionToken: adminToken
+                    sessionToken: adminToken,
+                    ink_device_id: "admin-console-bypass"
                 })
             })
             .then(function(res) {
@@ -933,10 +1057,10 @@
         function deleteMessage(rawMsg) {
             fetch(CONFIG.apiBase + "/api/admin/delete-message", {
                 method: "POST",
-                headers: {
+                credentials: "include",
+                headers: buildAdminHeaders({
                     "Content-Type": "application/json",
-                    "X-Admin-Token": adminToken
-                },
+                }),
                 body: JSON.stringify({ messageRaw: rawMsg })
             })
             .then(function(res) {
@@ -965,10 +1089,10 @@
         function purgeAllMessages() {
             fetch(CONFIG.apiBase + "/api/admin/purge-messages", {
                 method: "POST",
-                headers: {
+                credentials: "include",
+                headers: buildAdminHeaders({
                     "Content-Type": "application/json",
-                    "X-Admin-Token": adminToken
-                }
+                })
             })
             .then(function(res) {
                 if (res.status === 200) {
@@ -989,24 +1113,24 @@
             var userVal = prompt("Enter clear username to mute:", defaultUsername || "");
             if (!userVal) return;
             
-            var hoursStr = prompt("Mute user '" + userVal + "'.\n\nEnter duration in hours (e.g. 1 for 1 hour, 24 for 1 day, 168 for 1 week):", "1");
-            if (!hoursStr) return;
+            var secondsStr = prompt("Mute user '" + userVal + "'.\n\nEnter duration in seconds (e.g. 60 for 1 minute, 3600 for 1 hour):", "60");
+            if (!secondsStr) return;
             
-            var hours = parseInt(hoursStr, 10);
-            if (isNaN(hours) || hours <= 0) {
+            var seconds = parseInt(secondsStr, 10);
+            if (isNaN(seconds) || seconds <= 0) {
                 alert("Invalid duration.");
                 return;
             }
-            muteUser(userVal, hours * 3600);
+            muteUser(userVal, seconds);
         }
 
         function muteUser(username, durationSeconds) {
             fetch(CONFIG.apiBase + "/api/admin/mute-user", {
                 method: "POST",
-                headers: {
+                credentials: "include",
+                headers: buildAdminHeaders({
                     "Content-Type": "application/json",
-                    "X-Admin-Token": adminToken
-                },
+                }),
                 body: JSON.stringify({
                     username: username,
                     durationSeconds: durationSeconds
@@ -1019,6 +1143,43 @@
                 } else {
                     return res.json().then(function(data) {
                         throw new Error(data.message || "Failed to mute user.");
+                    });
+                }
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
+        }
+
+        function resetUserPasswordPrompt(username) {
+            var newPass = prompt("Enter new password for user '" + username + "' (minimum 4 characters):");
+            if (!newPass) return;
+            if (newPass.length < 4) {
+                alert("Password must be at least 4 characters.");
+                return;
+            }
+            resetUserPassword(username, newPass);
+        }
+
+        function resetUserPassword(username, newPassword) {
+            fetch(CONFIG.apiBase + "/api/admin/reset-password", {
+                method: "POST",
+                credentials: "include",
+                headers: buildAdminHeaders({
+                    "Content-Type": "application/json",
+                }),
+                body: JSON.stringify({
+                    username: username,
+                    newPassword: newPassword
+                })
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    logToConsole("Admin reset password for user: " + username);
+                    alert("Password reset successfully.");
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Failed to reset password.");
                     });
                 }
             })

@@ -1,13 +1,14 @@
 /**
  * SlateChat Automated Security Verification Test Suite
  * File Location: backend/test-suite.js
- * 
+ *
  * This script runs automated integration tests using native Node.js fetch
  * to verify our security perimeter, including anti-spam, username moderation,
  * global room cooldowns, and cryptographic admin locks.
  */
 
 const BASE_URL = process.env.TEST_API_URL || "https://slatechat-proxy.kindlemodshelf.workers.dev";
+const ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || "inkchat-admin-2026";
 
 console.log("=================================================================");
 console.log("🔒 InkChat Security & Anti-Spam Automated Integration Test Suite");
@@ -27,12 +28,26 @@ const printOutcome = (testName, passed, details = "") => {
     }
 };
 
+// Helper: Log in as admin and return the token, or null on failure
+async function adminLogin() {
+    const res = await fetch(`${BASE_URL}/api/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: ADMIN_PASSWORD })
+    });
+    if (res.status === 200) {
+        const data = await res.json();
+        return data.token || null;
+    }
+    return null;
+}
+
 /**
  * Main Test Execution Runner
  */
 async function runTestSuite() {
     let activeTestToken = null;
-    let activeTestFingerprint = "test-fingerprint-" + Date.now();
+    let activeTestDeviceId = null;
     let activeTestUsername = null;
     let adminToken = null;
 
@@ -46,14 +61,14 @@ async function runTestSuite() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 username: username,
-                password: "SecureTestPassword123",
-                fingerprint: activeTestFingerprint
+                password: "SecureTestPassword123"
             })
         });
         if (regRes.status === 200) {
             const data = await regRes.json();
             activeTestToken = data.token;
             activeTestUsername = username;
+            activeTestDeviceId = data.ink_device_id; // Server-assigned UUID
             console.log(`🔑 Pre-requisite: Established test session for user '${username}'`);
         } else {
             const errText = await regRes.text();
@@ -75,8 +90,7 @@ async function runTestSuite() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 username: hostileUsername,
-                password: "SomePassword123",
-                fingerprint: "test-fingerprint-moderation"
+                password: "SomePassword123"
             })
         });
 
@@ -101,7 +115,8 @@ async function runTestSuite() {
     // -------------------------------------------------------------------------
     try {
         const token = activeTestToken || "valid-mock-session-token";
-        
+        const deviceId = activeTestDeviceId;
+
         // Fire first valid message and await its complete successful execution
         const res1 = await fetch(`${BASE_URL}/api/send-message`, {
             method: "POST",
@@ -109,7 +124,7 @@ async function runTestSuite() {
             body: JSON.stringify({
                 text: "Global Cooldown Test Message A",
                 sessionToken: token,
-                fingerprint: activeTestFingerprint
+                ink_device_id: deviceId
             })
         });
 
@@ -120,12 +135,11 @@ async function runTestSuite() {
             body: JSON.stringify({
                 text: "Global Cooldown Test Message B",
                 sessionToken: token,
-                fingerprint: activeTestFingerprint
+                ink_device_id: deviceId
             })
         });
 
         const text2 = await res2.text();
-
         const passed = res2.status === 429;
         printOutcome("Test 2: Global Spam Cooldown", passed, `HTTP Status of duplicate: ${res2.status}, Payload: ${text2}`);
     } catch (e) {
@@ -140,6 +154,7 @@ async function runTestSuite() {
     // -------------------------------------------------------------------------
     try {
         const token = activeTestToken || "valid-mock-session-token";
+        const deviceId = activeTestDeviceId;
         const duplicateText = "Unique anti-spam string: " + Date.now();
 
         // 1. Send first message
@@ -149,7 +164,7 @@ async function runTestSuite() {
             body: JSON.stringify({
                 text: duplicateText,
                 sessionToken: token,
-                fingerprint: activeTestFingerprint
+                ink_device_id: deviceId
             })
         });
 
@@ -163,7 +178,7 @@ async function runTestSuite() {
             body: JSON.stringify({
                 text: duplicateText,
                 sessionToken: token,
-                fingerprint: activeTestFingerprint
+                ink_device_id: deviceId
             })
         });
 
@@ -194,54 +209,49 @@ async function runTestSuite() {
     }
 
     // -------------------------------------------------------------------------
-    // Test 5: Unique Browser-Generated LocalStorage ID Creation
+    // Test 5: Missing Required Fields Rejected on Register
     // -------------------------------------------------------------------------
-    let createdDeviceId = null;
     try {
-        const username = "tester_uuid_" + Math.floor(Math.random() * 10000);
+        // Omit username — backend must reject with 400
         const res = await fetch(`${BASE_URL}/api/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                username: username,
                 password: "SecureTestPassword123"
-                // Omitting fingerprint / ink_device_id to force server generation
             })
         });
-        
-        const data = await res.json();
-        const hasUUID = !!data.ink_device_id && data.ink_device_id.length === 36;
-        
-        createdDeviceId = data.ink_device_id;
-        const passed = res.status === 200 && hasUUID;
-        printOutcome("Test 5: Unique LocalStorage ID Generation", passed, `HTTP Status: ${res.status}, Device ID: ${createdDeviceId}`);
+
+        const text = await res.text();
+        const passed = res.status === 400;
+        printOutcome("Test 5: Missing Required Fields Rejected on Register", passed, `HTTP Status: ${res.status}, Payload: ${text}`);
     } catch (e) {
-        printOutcome("Test 5: Unique LocalStorage ID Generation", false, e.message);
+        printOutcome("Test 5: Missing Required Fields Rejected on Register", false, e.message);
     }
 
     // -------------------------------------------------------------------------
     // Test 6: Surgical Device-Level Ban Enforcement
     // -------------------------------------------------------------------------
     try {
-        const token = activeTestToken || "valid-mock-session-token";
-        const testBannedDeviceId = "banned-device-uuid-" + Date.now();
+        // 1. Register a new user to obtain a server-assigned device ID
+        const testBannedUser = "dev_ban_test_" + Math.floor(Math.random() * 10000);
+        const devRegRes = await fetch(`${BASE_URL}/api/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: testBannedUser,
+                password: "SecureTestPassword123"
+            })
+        });
 
-        // 1. Authenticate as Admin to execute device ban
-        let localAdminToken = adminToken;
-        if (!localAdminToken) {
-            const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password: "inkchat-admin-2026" })
-            });
-            if (loginRes.status === 200) {
-                const loginData = await loginRes.json();
-                localAdminToken = loginData.token;
-            }
-        }
+        const devRegData = await devRegRes.json();
+        const targetDeviceId = devRegData.ink_device_id;
+        const targetToken = devRegData.token;
 
-        if (localAdminToken) {
-            // 2. Ban the target device ID
+        // 2. Authenticate as Admin to execute device ban
+        const localAdminToken = await adminLogin();
+
+        if (localAdminToken && targetDeviceId && targetToken) {
+            // 3. Ban the target device ID
             const banRes = await fetch(`${BASE_URL}/api/admin/ban`, {
                 method: "POST",
                 headers: {
@@ -250,32 +260,33 @@ async function runTestSuite() {
                 },
                 body: JSON.stringify({
                     type: "device",
-                    target: testBannedDeviceId
+                    target: targetDeviceId
                 })
             });
 
-            // 3. Attempt message dispatch using the banned device ID
-            const sendRes = await fetch(`${BASE_URL}/api/send-message`, {
+            // 4. Attempt to send a message with the now-banned device ID
+            await sleep(500);
+            const blockedSendRes = await fetch(`${BASE_URL}/api/send-message`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     text: "This should be blocked by device ban",
-                    sessionToken: token,
-                    ink_device_id: testBannedDeviceId
+                    sessionToken: targetToken,
+                    ink_device_id: targetDeviceId
                 })
             });
 
-            const sendData = await sendRes.text();
+            const sendData = await blockedSendRes.text();
             let isCorrectError = false;
             try {
                 const json = JSON.parse(sendData);
-                isCorrectError = json.message === "This hardware node is banned permanently.";
+                isCorrectError = json.message === "This hardware node has been restricted permanently.";
             } catch (err) {}
 
-            const passed = banRes.status === 200 && sendRes.status === 403 && isCorrectError;
-            printOutcome("Test 6: Surgical Device-Level Ban Enforcement", passed, `Ban Status: ${banRes.status}, Send Status: ${sendRes.status}, Payload: ${sendData}`);
+            const passed = banRes.status === 200 && blockedSendRes.status === 403 && isCorrectError;
+            printOutcome("Test 6: Surgical Device-Level Ban Enforcement", passed, `Ban Status: ${banRes.status}, Send Status: ${blockedSendRes.status}, Payload: ${sendData}`);
         } else {
-            printOutcome("Test 6: Surgical Device-Level Ban Enforcement", false, "Skipped due to missing admin credentials.");
+            printOutcome("Test 6: Surgical Device-Level Ban Enforcement", false, "Skipped due to missing admin credentials or failed device registration.");
         }
     } catch (e) {
         printOutcome("Test 6: Surgical Device-Level Ban Enforcement", false, e.message);
@@ -286,35 +297,23 @@ async function runTestSuite() {
     // -------------------------------------------------------------------------
     try {
         const testBannedUser = "banned_user_" + Math.floor(Math.random() * 10000);
-        const testDevice = "test-device-uuid";
 
-        // 1. Create a new user profile
+        // 1. Create a new user profile — server assigns the device ID
         const regRes = await fetch(`${BASE_URL}/api/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 username: testBannedUser,
-                password: "SecureTestPassword123",
-                ink_device_id: testDevice
+                password: "SecureTestPassword123"
             })
         });
 
         const regData = await regRes.json();
         const userToken = regData.token;
+        const userDeviceId = regData.ink_device_id;
 
         // 2. Authenticate as Admin to execute account ban
-        let localAdminToken = adminToken;
-        if (!localAdminToken) {
-            const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password: "inkchat-admin-2026" })
-            });
-            if (loginRes.status === 200) {
-                const loginData = await loginRes.json();
-                localAdminToken = loginData.token;
-            }
-        }
+        const localAdminToken = await adminLogin();
 
         if (localAdminToken && userToken) {
             // 3. Ban the target account
@@ -330,14 +329,14 @@ async function runTestSuite() {
                 })
             });
 
-            // 4. Attempt message dispatch using the banned account session token
+            // 4. Banned accounts have their live sessions revoked immediately
             const sendRes = await fetch(`${BASE_URL}/api/send-message`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     text: "This should be blocked by account ban",
                     sessionToken: userToken,
-                    ink_device_id: testDevice
+                    ink_device_id: userDeviceId
                 })
             });
 
@@ -345,10 +344,10 @@ async function runTestSuite() {
             let isCorrectError = false;
             try {
                 const json = JSON.parse(sendData);
-                isCorrectError = json.message === "Access Denied: Your account has been permanently restricted.";
+                isCorrectError = json.message === "Unauthorized: Invalid or expired session token.";
             } catch (err) {}
 
-            const passed = banRes.status === 200 && sendRes.status === 403 && isCorrectError;
+            const passed = banRes.status === 200 && sendRes.status === 401 && isCorrectError;
             printOutcome("Test 7: Surgical Account-Level Ban Enforcement", passed, `Ban Status: ${banRes.status}, Send Status: ${sendRes.status}, Payload: ${sendData}`);
         } else {
             printOutcome("Test 7: Surgical Account-Level Ban Enforcement", false, "Skipped due to missing credentials.");
@@ -362,14 +361,8 @@ async function runTestSuite() {
     // -------------------------------------------------------------------------
     adminToken = null;
     try {
-        const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: "inkchat-admin-2026" })
-        });
-        if (loginRes.status === 200) {
-            const data = await loginRes.json();
-            adminToken = data.token;
+        adminToken = await adminLogin();
+        if (adminToken) {
             console.log("🔑 Pre-requisite: Established Admin test session.");
         }
     } catch (e) {
@@ -381,18 +374,17 @@ async function runTestSuite() {
     // -------------------------------------------------------------------------
     try {
         const username = "tester_pwd_" + Math.floor(Math.random() * 10000);
-        const pwdTestFingerprint = "test-pwd-fingerprint-" + Date.now();
         const regRes = await fetch(`${BASE_URL}/api/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 username: username,
-                password: "OriginalPassword123",
-                fingerprint: pwdTestFingerprint
+                password: "OriginalPassword123"
             })
         });
         const regData = await regRes.json();
         const userToken = regData.token;
+        const userDeviceId = regData.ink_device_id;
 
         // 1. Fail change password (incorrect old password)
         const failRes = await fetch(`${BASE_URL}/api/change-password`, {
@@ -416,14 +408,14 @@ async function runTestSuite() {
             })
         });
 
-        // 3. Try to login with the new password
+        // 3. Try to login with the new password using the server-assigned device ID
         const loginRes = await fetch(`${BASE_URL}/api/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 username: username,
                 password: "NewSecretPassword123",
-                fingerprint: pwdTestFingerprint
+                ink_device_id: userDeviceId
             })
         });
 
@@ -439,7 +431,7 @@ async function runTestSuite() {
     try {
         if (adminToken && activeTestToken) {
             const username = activeTestUsername || "tester_5366";
-            
+
             // 1. Mute the user for 4 seconds
             const muteRes = await fetch(`${BASE_URL}/api/admin/mute-user`, {
                 method: "POST",
@@ -460,7 +452,7 @@ async function runTestSuite() {
                 body: JSON.stringify({
                     text: "Muted Post Attempt",
                     sessionToken: activeTestToken,
-                    fingerprint: activeTestFingerprint
+                    ink_device_id: activeTestDeviceId
                 })
             });
 
@@ -482,7 +474,7 @@ async function runTestSuite() {
                 body: JSON.stringify({
                     text: "Unmuted Success Post",
                     sessionToken: activeTestToken,
-                    fingerprint: activeTestFingerprint
+                    ink_device_id: activeTestDeviceId
                 })
             });
 
@@ -501,7 +493,7 @@ async function runTestSuite() {
     try {
         if (adminToken && activeTestToken) {
             const uniqueText = "Delete me: " + Date.now();
-            
+
             // 1. Send unique message
             await sleep(1500); // clear cooldown
             const postRes = await fetch(`${BASE_URL}/api/send-message`, {
@@ -510,7 +502,7 @@ async function runTestSuite() {
                 body: JSON.stringify({
                     text: uniqueText,
                     sessionToken: activeTestToken,
-                    fingerprint: activeTestFingerprint
+                    ink_device_id: activeTestDeviceId
                 })
             });
 
@@ -589,7 +581,7 @@ async function runTestSuite() {
     }
 
     // -------------------------------------------------------------------------
-    // Test 12: Persistent Registration-Tracking Cookie Assertion
+    // Test 12: Session Cookie Assertion
     // -------------------------------------------------------------------------
     try {
         const username = "cookie_tester_" + Math.floor(Math.random() * 10000);
@@ -598,21 +590,19 @@ async function runTestSuite() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 username: username,
-                password: "SecureTestPassword123",
-                fingerprint: "test-cookie-fingerprint"
+                password: "SecureTestPassword123"
             })
         });
 
         const rawCookieHeader = regRes.headers.get("set-cookie") || "";
-        const hasRegisteredCookie = rawCookieHeader.indexOf("has_registered=true") !== -1;
-        const hasMaxAge = rawCookieHeader.indexOf("Max-Age=31536000") !== -1;
-        const hasLax = rawCookieHeader.indexOf("SameSite=Lax") !== -1;
-        const hasSecure = rawCookieHeader.indexOf("Secure") !== -1;
+        const hasSessionCookie = rawCookieHeader.indexOf("inkchat_session=") !== -1;
+        const hasMaxAge = rawCookieHeader.indexOf("Max-Age=2592000") !== -1;
+        const hasHttpOnly = rawCookieHeader.indexOf("HttpOnly") !== -1;
 
-        const passed = regRes.status === 200 && hasRegisteredCookie && hasMaxAge && hasLax && hasSecure;
-        printOutcome("Test 12: Persistent Registration Cookie Set", passed, `Set-Cookie Header: ${rawCookieHeader}`);
+        const passed = regRes.status === 200 && hasSessionCookie && hasMaxAge && hasHttpOnly;
+        printOutcome("Test 12: Session Cookie Set", passed, `Set-Cookie Header: ${rawCookieHeader}`);
     } catch (e) {
-        printOutcome("Test 12: Persistent Registration Cookie Set", false, e.message);
+        printOutcome("Test 12: Session Cookie Set", false, e.message);
     }
 
     console.log("\n=================================================================");
