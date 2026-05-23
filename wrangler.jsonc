@@ -8,8 +8,7 @@
   },
   "assets": {
     "directory": "frontend",
-    "binding": "ASSETS",
-    "run_worker_first": true
+    "binding": "ASSETS"
   },
   "compatibility_flags": [
     "nodejs_compat"

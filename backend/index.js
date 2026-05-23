@@ -496,6 +496,14 @@ async function sendMessage(request, env, cors, ctx) {
                 text:      body.replyTo.text
             };
         }
+        // Moderate before storing — block flagged messages outright
+        if (!isAdmin && env.OPENAI_API_KEY) {
+            try {
+                const mod = await moderate(text, env);
+                if (mod.flagged) return json({ status: 'ERROR', message: 'Message blocked by content policy.' }, 400, cors);
+            } catch (_) {}
+        }
+
         const msgStr = JSON.stringify(msg);
 
         // Store and broadcast
@@ -504,16 +512,6 @@ async function sendMessage(request, env, cors, ctx) {
             ['LTRIM', 'chat:messages', '0', String(MESSAGE_LIMIT - 1)]
         ], env);
         broadcastNotify(env, ctx);
-
-        // Background moderation — remove message after the fact if flagged
-        if (!isAdmin && ctx && env.OPENAI_API_KEY) {
-            ctx.waitUntil((async () => {
-                try {
-                    const result = await moderate(text, env);
-                    if (result.flagged) await redis(['LREM', 'chat:messages', '1', msgStr], env);
-                } catch (_) {}
-            })());
-        }
 
         return json({ status: 'SUCCESS' }, 200, cors);
 
