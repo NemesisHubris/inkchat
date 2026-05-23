@@ -627,16 +627,52 @@
             if (!data.linkedIps || data.linkedIps.length === 0) {
                 ipList.innerHTML = "<li class='no-data'>No network logs found.</li>";
             } else {
+                // Add header row
+                var headerLi = document.createElement("li");
+                headerLi.className = "data-item";
+                headerLi.style.background = "rgba(139, 92, 246, 0.05)";
+                headerLi.style.fontWeight = "bold";
+                headerLi.style.borderBottom = "2px solid var(--accent-purple)";
+                
+                var hIp = document.createElement("span");
+                hIp.style.flex = "1.5";
+                hIp.textContent = "Network IP Address";
+                
+                var hProbes = document.createElement("span");
+                hProbes.style.flex = "1";
+                hProbes.textContent = "Failed Probes (24h)";
+                
+                var hAction = document.createElement("span");
+                hAction.style.width = "80px";
+                hAction.style.textAlign = "right";
+                hAction.textContent = "Actions";
+                
+                headerLi.appendChild(hIp);
+                headerLi.appendChild(hProbes);
+                headerLi.appendChild(hAction);
+                ipList.appendChild(headerLi);
+
                 for (var j = 0; j < data.linkedIps.length; j++) {
-                    var ip = data.linkedIps[j];
+                    var ipObj = data.linkedIps[j];
+                    var ipVal = ipObj.ip;
+                    var failedCount = ipObj.failedCount;
+
                     var li2 = document.createElement("li");
                     li2.className = "data-item";
 
-                    var span2 = document.createElement("span");
-                    span2.textContent = ip;
+                    var spanIp = document.createElement("span");
+                    spanIp.style.flex = "1.5";
+                    spanIp.textContent = ipVal;
+
+                    var spanProbes = document.createElement("span");
+                    spanProbes.style.flex = "1";
+                    spanProbes.style.color = failedCount > 0 ? "var(--royal-red)" : "var(--text-secondary)";
+                    spanProbes.style.fontWeight = failedCount > 0 ? "bold" : "normal";
+                    spanProbes.textContent = failedCount;
 
                     var btn2 = document.createElement("button");
                     btn2.className = "ban-btn-inline";
+                    btn2.style.width = "80px";
                     btn2.textContent = "BAN IP";
                     (function(ipAddr) {
                         btn2.onclick = function() {
@@ -644,9 +680,10 @@
                                 banTarget('ip', ipAddr);
                             }
                         };
-                    })(ip);
+                    })(ipVal);
 
-                    li2.appendChild(span2);
+                    li2.appendChild(spanIp);
+                    li2.appendChild(spanProbes);
                     li2.appendChild(btn2);
                     ipList.appendChild(li2);
                 }

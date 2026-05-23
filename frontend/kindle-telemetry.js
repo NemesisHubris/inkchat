@@ -459,7 +459,8 @@
             ".gatekeeper-card { border: 5px solid #000000; padding: 40px 20px; max-width: 480px; margin: 60px auto; }\n" +
             "h1 { font-size: 26px; text-transform: uppercase; font-weight: bold; margin-bottom: 20px; }\n" +
             "p { font-size: 16px; line-height: 1.6; margin-bottom: 20px; }\n" +
-            ".shield-icon { font-size: 64px; margin-bottom: 15px; }";
+            ".shield-icon { font-size: 64px; margin-bottom: 15px; }\n" +
+            ".tos-link-btn { display: inline-block; margin-top: 15px; border: 2px solid #000000; padding: 8px 16px; color: #000000; text-decoration: none; font-weight: bold; text-transform: uppercase; }";
         
         if (head) {
             head.appendChild(style);
@@ -467,10 +468,31 @@
 
         var blockCard = document.createElement("div");
         blockCard.className = "gatekeeper-card";
-        blockCard.innerHTML =
-            "<div class='shield-icon'>🔒</div>" +
-            "<h1>Access Denied</h1>" +
-            "<p>" + (alertMessage || "This physical device terminal has been restricted from accessing InkChat workspaces.") + "</p>";
+        
+        var icon = document.createElement("div");
+        icon.className = "shield-icon";
+        icon.textContent = "🔒";
+        
+        var title = document.createElement("h1");
+        title.textContent = "Access Denied";
+        
+        var desc = document.createElement("p");
+        desc.textContent = alertMessage || "This physical device terminal has been restricted from accessing InkChat workspaces.";
+        
+        var tosLabel = document.createElement("p");
+        tosLabel.style.fontWeight = "bold";
+        tosLabel.textContent = "Terminated: Violation of ToS Section 1 (Hardware & Telemetry Integrity Policy).";
+        
+        var tosLink = document.createElement("a");
+        tosLink.className = "tos-link-btn";
+        tosLink.href = "tos.html";
+        tosLink.textContent = "Read Terms of Service";
+
+        blockCard.appendChild(icon);
+        blockCard.appendChild(title);
+        blockCard.appendChild(desc);
+        blockCard.appendChild(tosLabel);
+        blockCard.appendChild(tosLink);
         
         document.body.appendChild(blockCard);
         throw new Error("InkChat Device Lockout Policy Triggered.");
@@ -610,38 +632,120 @@
                 return;
             }
 
-            // Handshake verification with Cloudflare Worker security proxy
-            dispatchXhrPost(CONFIG.apiBase + CONFIG.checkHardwareEndpoint, {
-                fingerprint: token,
-                currentUserId: CONFIG.currentUserId
-            }, function (handshakeErr, response) {
-                if (handshakeErr) {
-                    if (handshakeErr.status === 403) {
-                        enforceDeviceLockout(handshakeErr.message || "This physical hardware terminal has been banned permanently due to content violations.");
-                    } else {
-                        enforceDeviceLockout("Handshake Gateway Failure. The security verification server could not be resolved.");
-                    }
-                    return;
-                }
-
-                if (response) {
-                    if (response.status === "BANNED") {
-                        enforceDeviceLockout(response.message || "This physical hardware terminal has been banned permanently due to content violations.");
-                    } else if (response.status === "DENIED") {
-                        enforceDeviceLockout(response.message || "Enforcing policy: Only one account allowed per physical device.");
-                    } else if (response.status === "ALLOWED") {
-                        // Handshake passed, expose validated token to app environment
-                        window.InkDeviceFingerprint = token;
+            // Step 1: Fetch challenge from /api/security/challenge
+            var challengeUrl = CONFIG.apiBase + "/api/security/challenge";
+            var challengeXhr = new XMLHttpRequest();
+            challengeXhr.open("GET", challengeUrl, true);
+            challengeXhr.onreadystatechange = function () {
+                if (challengeXhr.readyState === 4) {
+                    if (challengeXhr.status >= 200 && challengeXhr.status < 300) {
+                        var challengeData = null;
+                        try {
+                            challengeData = JSON.parse(challengeXhr.responseText);
+                        } catch (e) {}
                         
-                        if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-                            var inkReadyEvent = new CustomEvent("inkDeviceReady", { detail: { fingerprint: token } });
-                            window.dispatchEvent(inkReadyEvent);
+                        if (challengeData && challengeData.nonce) {
+                            var nonce = challengeData.nonce;
+                            
+                            // Step 2: Extract fontGeometry and compile mathematical proof
+                            var decodedSig = "";
+                            try {
+                                if (typeof window.atob === "function") {
+                                    decodedSig = window.atob(token);
+                                } else {
+                                    decodedSig = window.atob(token);
+                                }
+                            } catch (e) {
+                                enforceDeviceLockout("Failed to decode machine signature.");
+                                return;
+                            }
+                            
+                            var parts = decodedSig.split("|");
+                            var fontGeometry = "";
+                            for (var i = 0; i < parts.length; i++) {
+                                if (parts[i].indexOf("font:") === 0) {
+                                    fontGeometry = parts[i].substring(5);
+                                }
+                            }
+                            
+                            var fontGeomFloat = parseFloat(fontGeometry);
+                            if (isNaN(fontGeomFloat)) {
+                                fontGeomFloat = 0;
+                            }
+                            
+                            // Verify prototype integrity
+                            var integrityMultiplier = 1;
+                            try {
+                                if (CanvasRenderingContext2D.prototype.measureText.toString().indexOf('[native code]') !== -1) {
+                                    integrityMultiplier *= 3;
+                                } else {
+                                    integrityMultiplier *= 7;
+                                }
+                            } catch (e) {
+                                integrityMultiplier *= 11;
+                            }
+
+                            try {
+                                if (HTMLCanvasElement.prototype.getContext.toString().indexOf('[native code]') !== -1) {
+                                    integrityMultiplier *= 5;
+                                } else {
+                                    integrityMultiplier *= 13;
+                                }
+                            } catch (e) {
+                                integrityMultiplier *= 17;
+                            }
+                            
+                            // Run the math loop
+                            var proof = 0;
+                            for (var j = 0; j < nonce.length; j++) {
+                                var charCode = nonce.charCodeAt(j);
+                                proof += (charCode * fontGeomFloat) + (j * integrityMultiplier);
+                            }
+                            proof = Math.round(proof * 10000) / 10000;
+                            
+                            // Step 3: Submit proof and fingerprint to /api/security/verify
+                            dispatchXhrPost(CONFIG.apiBase + "/api/security/verify", {
+                                fingerprint: token,
+                                nonce: nonce,
+                                proof: proof
+                            }, function (verifyErr, verifyResponse) {
+                                if (verifyErr) {
+                                    if (verifyErr.status === 403) {
+                                        enforceDeviceLockout(verifyErr.message || "This physical hardware terminal has been restricted due to policy violations.");
+                                    } else {
+                                        enforceDeviceLockout("Handshake Gateway Failure. The security verification server could not be resolved.");
+                                    }
+                                    return;
+                                }
+                                
+                                if (verifyResponse) {
+                                    if (verifyResponse.status === "BANNED") {
+                                        enforceDeviceLockout(verifyResponse.message || "This physical hardware terminal has been banned permanently due to content violations.");
+                                    } else if (verifyResponse.status === "DENIED") {
+                                        enforceDeviceLockout(verifyResponse.message || "Enforcing policy: Only one account allowed per physical device.");
+                                    } else if (verifyResponse.status === "ALLOWED") {
+                                        // Handshake passed, expose validated token to app environment
+                                        window.InkDeviceFingerprint = token;
+                                        
+                                        if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+                                            var inkReadyEvent = new CustomEvent("inkDeviceReady", { detail: { fingerprint: token } });
+                                            window.dispatchEvent(inkReadyEvent);
+                                        }
+                                    }
+                                } else {
+                                    enforceDeviceLockout("Handshake response payload corrupted.");
+                                }
+                            });
+                            
+                        } else {
+                            enforceDeviceLockout("Cryptographic Challenge payload corrupted.");
                         }
+                    } else {
+                        enforceDeviceLockout("Failed to fetch Cryptographic Challenge. Handshake Gateway down.");
                     }
-                } else {
-                    enforceDeviceLockout("Handshake response payload corrupted.");
                 }
-            });
+            };
+            challengeXhr.send(null);
         });
     }
 

@@ -83,6 +83,16 @@ export default {
             return await handleCheckHardware(request, env, corsHeaders);
         }
 
+        // Challenge-Response API: GET or POST /api/security/challenge
+        if (url.pathname === "/api/security/challenge" && (request.method === "GET" || request.method === "POST")) {
+            return await handleSecurityChallenge(request, env, corsHeaders);
+        }
+
+        // Challenge-Response API: POST /api/security/verify
+        if (url.pathname === "/api/security/verify" && request.method === "POST") {
+            return await handleSecurityVerify(request, env, corsHeaders);
+        }
+
         // Security API Route: POST /api/register-device
         if (url.pathname === "/api/register-device" && request.method === "POST") {
             return await handleRegisterDevice(request, env, corsHeaders);
@@ -1051,12 +1061,24 @@ async function handleAdminUserLookup(request, env, corsHeaders) {
             linkedIps = JSON.parse(userData.linked_ips || "[]");
         } catch (e) {}
 
+        // Query Upstash Redis store for the failed telemetry count of each IP
+        let mappedIps = [];
+        if (linkedIps.length > 0) {
+            const ipPipelineCommands = linkedIps.map(ip => ["GET", `audit:failed_telemetry:${ip}`]);
+            const pipelineRes = await queryUpstash(ipPipelineCommands, env);
+            for (let i = 0; i < linkedIps.length; i++) {
+                const rawVal = pipelineRes[i] ? pipelineRes[i].result : null;
+                const count = parseInt(rawVal || "0", 10);
+                mappedIps.push({ ip: linkedIps[i], failedCount: count });
+            }
+        }
+
         return new Response(JSON.stringify({
             status: "SUCCESS",
             username: username.toLowerCase(),
             passwordHashStatus: userData.password_hash === "BANNED" ? "BANNED" : "ACTIVE",
             linkedDevices: linkedDevices,
-            linkedIps: linkedIps
+            linkedIps: mappedIps
         }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -1133,6 +1155,187 @@ async function handleAdminBan(request, env, corsHeaders) {
         return new Response(JSON.stringify({
             status: "ERROR",
             message: `Admin ban action failed: ${err.message}`
+        }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
+ * Helper: Generate signed cryptographic nonce containing a server timestamp
+ */
+async function generateSignedNonce(env) {
+    const uuid = crypto.randomUUID();
+    const timestamp = Date.now();
+    const salt = env.PASSWORD_SALT || "inkchat-salt-2026";
+    
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`${uuid}:${timestamp}:${salt}`);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    
+    return `${uuid}:${timestamp}:${hashHex}`;
+}
+
+/**
+ * Helper: Verify signed cryptographic nonce and check expiration (15-second window)
+ */
+async function verifySignedNonce(nonce, env) {
+    if (!nonce) return { valid: false };
+    const parts = nonce.split(":");
+    if (parts.length !== 3) return { valid: false };
+    
+    const uuid = parts[0];
+    const timestampStr = parts[1];
+    const hashHex = parts[2];
+    const timestamp = parseInt(timestampStr, 10);
+    
+    if (isNaN(timestamp)) return { valid: false };
+    
+    const now = Date.now();
+    if (now - timestamp < 0 || now - timestamp > 15000) {
+        return { valid: false, error: "EXPIRED" };
+    }
+    
+    const salt = env.PASSWORD_SALT || "inkchat-salt-2026";
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`${uuid}:${timestamp}:${salt}`);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const expectedHashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    
+    if (hashHex !== expectedHashHex) {
+        return { valid: false, error: "INVALID_SIGNATURE" };
+    }
+    
+    return { valid: true };
+}
+
+/**
+ * Handler: GET or POST /api/security/challenge
+ * Generates a signed cryptographic challenge nonce.
+ */
+async function handleSecurityChallenge(request, env, corsHeaders) {
+    try {
+        const nonce = await generateSignedNonce(env);
+        const parts = nonce.split(":");
+        const timestamp = parseInt(parts[1], 10);
+        
+        return new Response(JSON.stringify({
+            nonce: nonce,
+            timestamp: timestamp
+        }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({
+            status: "ERROR",
+            message: `Challenge generation failure: ${err.message}`
+        }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
+ * Handler: POST /api/security/verify
+ * Performs zero-trust cryptographic challenge-response verification.
+ * Silent logging and session lockout (strict no auto-bans).
+ */
+async function handleSecurityVerify(request, env, corsHeaders) {
+    try {
+        const body = await request.json();
+        const fingerprint = body.fingerprint;
+        const nonce = body.nonce;
+        const proof = body.proof;
+
+        if (!fingerprint || !nonce || proof === undefined) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Missing parameter: fingerprint, nonce, and proof are required."
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // 1. Hardware Ban Check: if device signature matches BANNED list
+        const deviceKey = `device:${fingerprint}`;
+        const deviceCheck = await queryUpstash(["GET", deviceKey], env);
+        if (deviceCheck === "BANNED") {
+            return new Response(JSON.stringify({
+                status: "BANNED",
+                message: "Enforcing security policy: This physical hardware node is banned permanently due to usage violations."
+            }), {
+                status: 403,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // 2. Verify Signed Nonce (stateless signature + 15s expiry)
+        const nonceResult = await verifySignedNonce(nonce, env);
+        
+        // 3. Decode signature to extract fontGeometry
+        let fontGeometry = "";
+        try {
+            const decodedSig = atob(fingerprint);
+            const sigParts = decodedSig.split("|");
+            for (const part of sigParts) {
+                if (part.startsWith("font:")) {
+                    fontGeometry = part.substring(5);
+                }
+            }
+        } catch (e) {
+            // Treat as failure
+        }
+
+        const fontGeomFloat = parseFloat(fontGeometry);
+        
+        // 4. Calculate expected proof
+        const integrityMultiplier = 15; // expected for genuine client
+        let expectedProof = 0;
+        for (let i = 0; i < nonce.length; i++) {
+            const charCode = nonce.charCodeAt(i);
+            expectedProof += (charCode * fontGeomFloat) + (i * integrityMultiplier);
+        }
+        expectedProof = Math.round(expectedProof * 10000) / 10000;
+
+        const isMathValid = !isNaN(fontGeomFloat) && Math.abs(proof - expectedProof) < 0.001;
+
+        if (!nonceResult.valid || !isMathValid) {
+            // Silent Telemetry Audit: Atomic increment and set 24h expiration
+            const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
+            await queryUpstash([
+                ["INCRBY", `audit:failed_telemetry:${clientIp}`, "1"],
+                ["EXPIRE", `audit:failed_telemetry:${clientIp}`, "86400"]
+            ], env);
+
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Terminated: Violation of ToS Section 1 (Hardware & Telemetry Integrity Policy)."
+            }), {
+                status: 403,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // Successful validation - return success ALLOWED response to the client
+        return new Response(JSON.stringify({
+            status: "ALLOWED",
+            token: fingerprint
+        }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+
+    } catch (err) {
+        return new Response(JSON.stringify({
+            status: "ERROR",
+            message: `Verification failure: ${err.message}`
         }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" }

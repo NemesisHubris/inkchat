@@ -192,6 +192,101 @@ async function runTestSuite() {
         printOutcome("Test 4: Unauthenticated Admin Interface Lockout", false, e.message);
     }
 
+    // -------------------------------------------------------------------------
+    // Test 5: Security Challenge Endpoint
+    // -------------------------------------------------------------------------
+    let activeNonce = null;
+    try {
+        const res = await fetch(`${BASE_URL}/api/security/challenge`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" }
+        });
+        
+        const data = await res.json();
+        const hasNonce = !!data.nonce;
+        const hasTimestamp = !!data.timestamp;
+        
+        activeNonce = data.nonce;
+        const passed = res.status === 200 && hasNonce && hasTimestamp;
+        printOutcome("Test 5: Security Challenge Generation", passed, `HTTP Status: ${res.status}, Nonce: ${activeNonce}`);
+    } catch (e) {
+        printOutcome("Test 5: Security Challenge Generation", false, e.message);
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 6: Security Verify - Rejection of Incorrect Mathematical Proof
+    // -------------------------------------------------------------------------
+    try {
+        const fakeFingerprint = Buffer.from("screen:800x600|font:121.4|silicon:10|engine:blob-active").toString("base64");
+        const res = await fetch(`${BASE_URL}/api/security/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                fingerprint: fakeFingerprint,
+                nonce: activeNonce || "mock-nonce-123",
+                proof: 99999.99 // Invalid proof
+            })
+        });
+
+        const text = await res.text();
+        let isCorrectMessage = false;
+        try {
+            const json = JSON.parse(text);
+            isCorrectMessage = json.message === "Terminated: Violation of ToS Section 1 (Hardware & Telemetry Integrity Policy).";
+        } catch (err) {}
+
+        const passed = res.status === 403 && isCorrectMessage;
+        printOutcome("Test 6: Security Verification Rejection", passed, `HTTP Status: ${res.status}, Payload: ${text}`);
+    } catch (e) {
+        printOutcome("Test 6: Security Verification Rejection", false, e.message);
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 7: Security Verify - Acceptance of Valid Cryptographic Proof
+    // -------------------------------------------------------------------------
+    try {
+        const fontGeometry = "121.4";
+        const fakeFingerprint = Buffer.from(`screen:800x600|font:${fontGeometry}|silicon:10|engine:blob-active`).toString("base64");
+        
+        // Calculate the correct proof using the same mathematical loop as the client/server
+        const fontGeomFloat = parseFloat(fontGeometry);
+        const integrityMultiplier = 15;
+        let expectedProof = 0;
+        const nonce = activeNonce;
+        
+        if (nonce) {
+            for (let i = 0; i < nonce.length; i++) {
+                const charCode = nonce.charCodeAt(i);
+                expectedProof += (charCode * fontGeomFloat) + (i * integrityMultiplier);
+            }
+            expectedProof = Math.round(expectedProof * 10000) / 10000;
+
+            const res = await fetch(`${BASE_URL}/api/security/verify`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    fingerprint: fakeFingerprint,
+                    nonce: nonce,
+                    proof: expectedProof
+                })
+            });
+
+            const text = await res.text();
+            let isAllowed = false;
+            try {
+                const json = JSON.parse(text);
+                isAllowed = json.status === "ALLOWED" && json.token === fakeFingerprint;
+            } catch (err) {}
+
+            const passed = res.status === 200 && isAllowed;
+            printOutcome("Test 7: Security Verification Acceptance", passed, `HTTP Status: ${res.status}, Payload: ${text}`);
+        } else {
+            printOutcome("Test 7: Security Verification Acceptance", false, "Skipped due to missing nonce challenge.");
+        }
+    } catch (e) {
+        printOutcome("Test 7: Security Verification Acceptance", false, e.message);
+    }
+
     console.log("\n=================================================================");
     console.log("🏁 Verification Completed.");
     console.log("=================================================================");
