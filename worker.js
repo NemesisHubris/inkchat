@@ -41,8 +41,8 @@ small{display:block;margin-top:16px;font-size:11px;color:#777}
 <div class="box">
   <div class="stripe"></div>
   <h1>InkChat</h1>
-  <p>This application is designed for e&#8209;ink reading devices.</p>
-  <small>Please open it on a Kindle, Kobo, or other e&#8209;ink reader.</small>
+  <p>You can only access InkChat from your Kindle or Kobo.</p>
+  <small>Open this page on an e&#8209;ink device to continue.</small>
   <div class="stripe" style="margin-top:20px;margin-bottom:0"></div>
 </div>
 </body>
