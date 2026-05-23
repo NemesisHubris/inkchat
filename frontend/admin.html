@@ -3,18 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InkChat Operations Command Center</title>
+    <title>Operational Control Center</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0d1117;
-            --card-bg: rgba(22, 27, 34, 0.8);
-            --border-color: rgba(48, 54, 61, 0.8);
+            --bg-color: #0b0f17;
+            --card-bg: rgba(20, 25, 35, 0.85);
+            --border-color: rgba(48, 54, 61, 0.7);
             --accent-purple: #8b5cf6;
             --accent-blue: #3b82f6;
             --royal-red: #ef4444;
             --text-primary: #f0f6fc;
             --text-secondary: #8b949e;
+            --glow-color: rgba(139, 92, 246, 0.15);
         }
 
         * {
@@ -40,22 +41,22 @@
         .auth-gate {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             width: 100%;
-            max-width: 400px;
+            max-width: 420px;
             padding: 40px;
             border-radius: 16px;
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.5);
             text-align: center;
             animation: fadeIn 0.6s ease-out;
         }
 
-        .auth-gate h2 {
+        .auth-gate h1 {
             font-family: 'Outfit', sans-serif;
             font-weight: 800;
             font-size: 26px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
             background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -70,16 +71,16 @@
         }
 
         .input-group {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
             text-align: left;
         }
 
         .input-group label {
             display: block;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
             margin-bottom: 8px;
             color: var(--text-secondary);
         }
@@ -87,7 +88,7 @@
         .admin-input {
             width: 100%;
             padding: 14px;
-            background: rgba(13, 17, 23, 0.8);
+            background: rgba(10, 12, 18, 0.9);
             border: 1px solid var(--border-color);
             color: var(--text-primary);
             border-radius: 8px;
@@ -98,7 +99,7 @@
         .admin-input:focus {
             outline: none;
             border-color: var(--accent-purple);
-            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
         }
 
         .admin-btn {
@@ -110,14 +111,15 @@
             font-weight: bold;
             font-size: 15px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
             border-radius: 8px;
             cursor: pointer;
-            transition: opacity 0.3s ease, transform 0.2s ease;
+            transition: all 0.3s ease;
         }
 
         .admin-btn:hover {
-            opacity: 0.9;
+            opacity: 0.95;
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
             transform: translateY(-1px);
         }
 
@@ -128,16 +130,20 @@
         .auth-error {
             color: var(--royal-red);
             font-size: 13px;
-            margin-top: 15px;
+            margin-top: 18px;
             font-weight: 500;
             display: none;
+            background: rgba(239, 68, 68, 0.1);
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(239, 68, 68, 0.2);
         }
 
         /* Dashboard Container */
         .dashboard-container {
             width: 100%;
-            max-width: 1100px;
-            margin: 40px;
+            max-width: 1140px;
+            margin: 40px auto;
             animation: fadeIn 0.6s ease-out;
             display: none; /* Hidden by default */
         }
@@ -154,7 +160,7 @@
         .dash-header h1 {
             font-family: 'Outfit', sans-serif;
             font-weight: 800;
-            font-size: 28px;
+            font-size: 30px;
             letter-spacing: 0.5px;
             background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
             -webkit-background-clip: text;
@@ -175,7 +181,7 @@
 
         .dash-grid {
             display: grid;
-            grid-template-columns: 1.5fr 1fr;
+            grid-template-columns: 1.4fr 1fr;
             gap: 30px;
         }
 
@@ -184,7 +190,8 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 30px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(12px);
         }
 
         .panel-title {
@@ -192,9 +199,8 @@
             font-weight: 600;
             font-size: 20px;
             margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 10px;
         }
 
         /* Search Section */
@@ -206,11 +212,12 @@
 
         /* Results Display Card */
         .result-card {
-            background: rgba(13, 17, 23, 0.5);
+            background: rgba(10, 12, 18, 0.6);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 20px;
+            padding: 24px;
             display: none;
+            animation: fadeIn 0.4s ease-out;
         }
 
         .user-header-status {
@@ -218,14 +225,14 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 12px;
-            margin-bottom: 15px;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
         }
 
         .username-title {
             font-family: 'Outfit', sans-serif;
             font-weight: 600;
-            font-size: 18px;
+            font-size: 20px;
         }
 
         .user-status-tag {
@@ -234,31 +241,32 @@
             font-size: 11px;
             font-weight: bold;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .status-active {
             background: rgba(16, 185, 129, 0.1);
             color: #10b981;
-            border: 1px solid #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
         }
 
         .status-banned {
             background: rgba(239, 68, 68, 0.1);
             color: var(--royal-red);
-            border: 1px solid var(--royal-red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
         .data-section {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
 
         .data-section h4 {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: var(--text-secondary);
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         .data-list {
@@ -269,8 +277,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 14px;
-            background: rgba(22, 27, 34, 0.6);
+            padding: 12px 16px;
+            background: rgba(20, 25, 35, 0.4);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             margin-bottom: 8px;
@@ -282,17 +290,18 @@
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid var(--royal-red);
             color: var(--royal-red);
-            padding: 4px 10px;
+            padding: 5px 12px;
             border-radius: 4px;
             font-size: 11px;
             font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
         }
 
         .ban-btn-inline:hover {
             background: var(--royal-red);
             color: #ffffff;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
         }
 
         /* Quick Ban Panel */
@@ -304,34 +313,38 @@
         }
 
         .type-btn {
-            background: rgba(22, 27, 34, 0.8);
+            background: rgba(20, 25, 35, 0.6);
             border: 1px solid var(--border-color);
             color: var(--text-secondary);
-            padding: 10px;
+            padding: 12px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 13px;
             font-weight: 600;
             transition: all 0.3s ease;
+            text-align: center;
         }
 
         .type-btn.active {
             border-color: var(--accent-purple);
             color: var(--text-primary);
-            background: rgba(139, 92, 246, 0.1);
+            background: rgba(139, 92, 246, 0.15);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
         }
 
         .console-log {
             margin-top: 25px;
-            background: rgba(0, 0, 0, 0.4);
+            background: rgba(10, 12, 18, 0.85);
             border: 1px solid var(--border-color);
-            font-family: monospace;
+            font-family: 'Courier New', Courier, monospace;
             padding: 15px;
             border-radius: 8px;
-            height: 150px;
+            height: 180px;
             overflow-y: auto;
             font-size: 12px;
-            color: #00ff00;
+            color: #00ff66;
+            line-height: 1.5;
+            text-shadow: 0 0 2px rgba(0, 255, 102, 0.3);
         }
 
         @keyframes fadeIn {
@@ -350,16 +363,16 @@
 
     <!-- Administrative Password Gate Modal -->
     <div id="authGate" class="auth-gate">
-        <h2>Operations Gate</h2>
-        <p>Access strictly limited to authorized desktop terminals.</p>
+        <h1>Operational Control Center</h1>
+        <p>Access limited strictly to verified administrative terminals.</p>
         
         <form onsubmit="return handleAdminAuth(event);">
             <div class="input-group">
-                <label for="adminPass">Security Code</label>
-                <input type="password" id="adminPass" class="admin-input" placeholder="••••••••••••" required autocomplete="off">
+                <label for="adminPassword">Security Code</label>
+                <input type="password" id="adminPassword" class="admin-input" placeholder="••••••••••••" required autocomplete="off">
             </div>
             
-            <button type="submit" class="admin-btn">Establish Session</button>
+            <button type="submit" class="admin-btn">Sign In</button>
             <div id="authErrorMsg" class="auth-error"></div>
         </form>
     </div>
@@ -426,36 +439,17 @@
                 
                 <div id="consoleLog" class="console-log">
                     &gt; Operations Console Initialized...<br>
-                    &gt; Device parameters scanned. System secure.
+                    &gt; Administrative session monitoring active.
                 </div>
             </div>
         </div>
     </div>
 
     <script type="text/javascript">
-        // Telemetry Isolation: Completely disable and remove automated hooks/checks for the admin portal
-        function executeTelemetrySync() {
-            // Disabled: Admin portal is isolated from Kindle telemetry
-        }
-        function isGenuineEInkDevice() {
-            // Disabled: Admin portal is isolated from Kindle hardware spoof checks
-            return true;
-        }
-
-        // Desktop Lockout Verification Block
-        (function() {
-            var ua = navigator.userAgent || "";
-            var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Kindle|Silk/i.test(ua);
-            var isLowRes = window.screen.width < 1024;
-            if (isMobile || isLowRes) {
-                document.body.innerHTML = "<div class='auth-gate' style='border-color: #ef4444;'><h2 style='color: #ef4444;'>Security Alert</h2><p style='margin-top: 15px; font-weight: 500;'>Administrative console is strictly restricted to authorized desktop workstations. Access denied.</p></div>";
-            }
-        })();
-
-        var adminToken = "";
+        var adminToken = localStorage.getItem("adminToken") || "";
         var activeBanType = "account";
         var CONFIG = {
-            apiBase: "https://slatechat-proxy.kindlemodshelf.workers.dev" // Matches worker URL
+            apiBase: "https://slatechat-proxy.kindlemodshelf.workers.dev"
         };
 
         function logToConsole(message) {
@@ -466,42 +460,55 @@
             log.scrollTop = log.scrollHeight;
         }
 
+        // Check if session is already active
+        window.onload = function() {
+            if (adminToken) {
+                document.getElementById("authGate").style.display = "none";
+                document.getElementById("mainDashboard").style.display = "block";
+                logToConsole("Administrator Session Restored from Cache.");
+            }
+        };
+
         function handleAdminAuth(event) {
             if (event.preventDefault) event.preventDefault();
-            var pass = document.getElementById("adminPass").value;
+            var pass = document.getElementById("adminPassword").value;
             var errorMsg = document.getElementById("authErrorMsg");
             errorMsg.style.display = "none";
 
-            var xhr = new XMLHttpRequest();
-            xhr.open("POST", CONFIG.apiBase + "/api/admin/login", true);
-            xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            var resp = JSON.parse(xhr.responseText);
-                            if (resp && resp.status === "SUCCESS") {
-                                adminToken = resp.token;
-                                document.getElementById("authGate").style.display = "none";
-                                document.getElementById("mainDashboard").style.display = "block";
-                                logToConsole("Administrator Session Established.");
-                            }
-                        } catch (e) {
-                            errorMsg.textContent = "Malformed session payload.";
-                            errorMsg.style.display = "block";
-                        }
-                    } else {
-                        var errText = "Authentication rejected: Invalid code.";
-                        try {
-                            var errJson = JSON.parse(xhr.responseText);
-                            if (errJson && errJson.message) errText = errJson.message;
-                        } catch (e) {}
-                        errorMsg.textContent = errText;
-                        errorMsg.style.display = "block";
-                    }
+            fetch(CONFIG.apiBase + "/api/admin/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ password: pass })
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    return res.json();
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Authentication rejected: Invalid credentials.");
+                    }).catch(function() {
+                        throw new Error("Authentication rejected: Invalid credentials.");
+                    });
                 }
-            };
-            xhr.send(JSON.stringify({ password: pass }));
+            })
+            .then(function(data) {
+                if (data && data.token) {
+                    adminToken = data.token;
+                    localStorage.setItem("adminToken", adminToken);
+                    document.getElementById("authGate").style.display = "none";
+                    document.getElementById("mainDashboard").style.display = "block";
+                    logToConsole("Administrator Session Established.");
+                } else {
+                    throw new Error("Malformed session payload.");
+                }
+            })
+            .catch(function(err) {
+                errorMsg.textContent = err.message;
+                errorMsg.style.display = "block";
+            });
+
             return false;
         }
 
@@ -532,33 +539,35 @@
             var resultCard = document.getElementById("resultCard");
             resultCard.style.display = "none";
 
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", CONFIG.apiBase + "/api/admin/user-lookup?username=" + encodeURIComponent(username), true);
-            xhr.setRequestHeader("X-Admin-Token", adminToken);
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            var resp = JSON.parse(xhr.responseText);
-                            if (resp && resp.status === "SUCCESS") {
-                                renderInvestigateResult(resp);
-                                logToConsole("Looked up user: " + username);
-                            }
-                        } catch (e) {
-                            logToConsole("Lookup parsing error.");
-                        }
-                    } else {
-                        var errText = "User Lookup Failed.";
-                        try {
-                            var errJson = JSON.parse(xhr.responseText);
-                            if (errJson && errJson.message) errText = errJson.message;
-                        } catch (e) {}
-                        logToConsole("Error: " + errText);
-                        alert(errText);
-                    }
+            fetch(CONFIG.apiBase + "/api/admin/user-lookup?username=" + encodeURIComponent(username), {
+                method: "GET",
+                headers: {
+                    "X-Admin-Token": adminToken
                 }
-            };
-            xhr.send();
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    return res.json();
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "User Lookup Failed.");
+                    }).catch(function() {
+                        throw new Error("User Lookup Failed.");
+                    });
+                }
+            })
+            .then(function(data) {
+                if (data && data.status === "SUCCESS") {
+                    renderInvestigateResult(data);
+                    logToConsole("Looked up user: " + username);
+                } else {
+                    throw new Error("Malformed data response.");
+                }
+            })
+            .catch(function(err) {
+                logToConsole("Error: " + err.message);
+                alert(err.message);
+            });
         }
 
         function renderInvestigateResult(data) {
@@ -583,7 +592,7 @@
             // Render Devices
             var devList = document.getElementById("resDevices");
             devList.innerHTML = "";
-            if (data.linkedDevices.length === 0) {
+            if (!data.linkedDevices || data.linkedDevices.length === 0) {
                 devList.innerHTML = "<li class='no-data'>No devices registered.</li>";
             } else {
                 for (var i = 0; i < data.linkedDevices.length; i++) {
@@ -615,7 +624,7 @@
             // Render IPs
             var ipList = document.getElementById("resIps");
             ipList.innerHTML = "";
-            if (data.linkedIps.length === 0) {
+            if (!data.linkedIps || data.linkedIps.length === 0) {
                 ipList.innerHTML = "<li class='no-data'>No network logs found.</li>";
             } else {
                 for (var j = 0; j < data.linkedIps.length; j++) {
@@ -647,34 +656,37 @@
         }
 
         function banTarget(type, target) {
-            var xhr = new XMLHttpRequest();
-            xhr.open("POST", CONFIG.apiBase + "/api/admin/ban", true);
-            xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-            xhr.setRequestHeader("X-Admin-Token", adminToken);
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            var resp = JSON.parse(xhr.responseText);
-                            if (resp && resp.status === "SUCCESS") {
-                                logToConsole(resp.message || "Lockout executed.");
-                                investigateUser(); // Refresh card
-                            }
-                        } catch (e) {
-                            logToConsole("Ban parsed feedback error.");
-                        }
-                    } else {
-                        var errText = "Ban Lockout Command Failed.";
-                        try {
-                            var errJson = JSON.parse(xhr.responseText);
-                            if (errJson && errJson.message) errText = errJson.message;
-                        } catch (e) {}
-                        logToConsole("Error executing ban: " + errText);
-                        alert(errText);
-                    }
+            fetch(CONFIG.apiBase + "/api/admin/ban", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Admin-Token": adminToken
+                },
+                body: JSON.stringify({ type: type, target: target })
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    return res.json();
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Ban Lockout Command Failed.");
+                    }).catch(function() {
+                        throw new Error("Ban Lockout Command Failed.");
+                    });
                 }
-            };
-            xhr.send(JSON.stringify({ type: type, target: target }));
+            })
+            .then(function(data) {
+                if (data && data.status === "SUCCESS") {
+                    logToConsole(data.message || "Lockout executed.");
+                    investigateUser(); // Refresh card
+                } else {
+                    throw new Error("Malformed ban response.");
+                }
+            })
+            .catch(function(err) {
+                logToConsole("Error executing ban: " + err.message);
+                alert(err.message);
+            });
         }
 
         function executeBanDirect() {
