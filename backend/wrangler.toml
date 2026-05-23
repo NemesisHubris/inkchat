@@ -1,0 +1,14 @@
+name = "slatechat-proxy"
+main = "index.js"
+compatibility_date = "2024-05-02"
+
+[vars]
+# public non-sensitive configuration values
+# UPSTASH_REDIS_REST_URL = "https://your-upstash-instance.upstash.io"
+
+# SECRET VARIABLES:
+# Note: Do not hardcode sensitive secrets in wrangler.toml!
+# Deploy credentials using the Cloudflare CLI or Cloudflare dashboard:
+# 1. wrangler secret put UPSTASH_REDIS_REST_URL
+# 2. wrangler secret put UPSTASH_REDIS_REST_TOKEN
+# 3. wrangler secret put OPENAI_API_KEY
