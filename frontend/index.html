@@ -70,6 +70,7 @@
         </div>
         <div id="send-error"></div>
         <div id="input-row">
+            <button id="emoji-toggle" onclick="toggleEmojiPicker()" type="button">☺</button>
             <textarea id="msg-input" placeholder="Type a message…" disabled></textarea>
             <button id="send-btn" class="btn" onclick="return submitSend(event)" disabled>Send</button>
         </div>
@@ -105,7 +106,6 @@
                 <li>Accept that messages may be moderated or removed at any time.</li>
                 <li>Understand that repeat violations result in a permanent ban.</li>
             </ul>
-            <p style="margin-top:12px;">This service stores a device identifier cookie and a hardware fingerprint to prevent ban evasion. No personal data is sold or shared with third parties.</p>
             <div class="modal-btns">
                 <button class="btn" onclick="closeTos()">Close</button>
             </div>

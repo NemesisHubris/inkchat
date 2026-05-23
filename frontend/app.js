@@ -4,26 +4,31 @@
 
     // ── State ─────────────────────────────────────────────────────────────
     var S = {
-        userId:    null,   // username string
-        token:     null,   // session token
+        userId:    null,
+        token:     null,
         deviceId:  null,
         authMode:  'login',
-        reply:     null,   // { userId, timestamp, text }
+        reply:     null,
         sending:   false,
-        seenTs:    {},     // timestamp -> true (tracks what's rendered)
-        inbox:     [],     // { userId, timestamp, text, replyTo }
-        dismissed: {},     // timestamp -> true
+        seenTs:    {},
+        inbox:     [],
+        dismissed: {},
         ws:        null,
-        pollTimer: null
+        pollTimer: null,
+        emojiOpen: false
     };
 
-    // ── DOM helpers ───────────────────────────────────────────────────────
-    function el(id)   { return doc.getElementById(id); }
-    function cls(id)  { return el(id).classList; }
+    var EMOJIS = [
+        '😊','🙂','😀','😄','😂','😅','😭','😤','😴','🤔',
+        '😎','😬','😏','😡','🥳','🫡','🤦','🤷','🙃','😶',
+        '👍','👎','👋','🤝','🙏','👏','❤️','🔥','⭐','🎉',
+        '✅','❌','❓','❗','💬','📌','🎊','💡','🫠','💀'
+    ];
 
-    function show(id)  { cls(id).add('visible'); }
-    function hide(id)  { cls(id).remove('visible'); }
-    function vis(id)   { return cls(id).contains('visible'); }
+    // ── DOM helpers ───────────────────────────────────────────────────────
+    function el(id) { return doc.getElementById(id); }
+    function show(id) { el(id).classList.add('visible'); }
+    function hide(id) { el(id).classList.remove('visible'); }
 
     function esc(s) {
         var d = doc.createElement('div');
@@ -37,12 +42,7 @@
         n.textContent = msg;
         n.style.display = 'block';
         if (_noticeTimer) clearTimeout(_noticeTimer);
-        _noticeTimer = setTimeout(function () { n.style.display = 'none'; }, 3000);
-    }
-
-    function maskedName(u) {
-        if (!u || u.length <= 6) return u;
-        return u.slice(0, 5) + '***' + u.slice(-2);
+        _noticeTimer = setTimeout(function () { n.style.display = 'none'; }, 2800);
     }
 
     function fmtTime(ts) {
@@ -55,6 +55,45 @@
 
     function scrollDown(box) {
         box.scrollTop = box.scrollHeight;
+    }
+
+    // ── Emoji picker ──────────────────────────────────────────────────────
+    function buildEmojiPicker() {
+        var picker = doc.createElement('div');
+        picker.id = 'emoji-picker';
+        for (var i = 0; i < EMOJIS.length; i++) {
+            (function (em) {
+                var btn = doc.createElement('button');
+                btn.className   = 'emoji-btn';
+                btn.textContent = em;
+                btn.type        = 'button';
+                btn.onclick     = function () { insertEmoji(em); };
+                picker.appendChild(btn);
+            })(EMOJIS[i]);
+        }
+        return picker;
+    }
+
+    function toggleEmojiPicker() {
+        S.emojiOpen = !S.emojiOpen;
+        el('emoji-picker').style.display = S.emojiOpen ? 'grid' : 'none';
+        el('emoji-toggle').textContent   = S.emojiOpen ? '✕' : '☺';
+    }
+
+    function closeEmojiPicker() {
+        if (!S.emojiOpen) return;
+        S.emojiOpen = false;
+        el('emoji-picker').style.display = 'none';
+        el('emoji-toggle').textContent   = '☺';
+    }
+
+    function insertEmoji(em) {
+        var input = el('msg-input');
+        var s = input.selectionStart, e2 = input.selectionEnd;
+        input.value = input.value.slice(0, s) + em + input.value.slice(e2);
+        input.selectionStart = input.selectionEnd = s + em.length;
+        input.focus();
+        closeEmojiPicker();
     }
 
     // ── Auth ──────────────────────────────────────────────────────────────
@@ -74,11 +113,10 @@
         var password = el('f-pass').value;
 
         hide('auth-err');
-
         if (!username || !password) return false;
 
-        if (username !== username.replace(/[^a-zA-Z0-9_]/g, '')) {
-            showAuthErr('Username must be alphanumeric only.');
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            showAuthErr('Username: letters, numbers, underscores only.');
             return false;
         }
 
@@ -88,13 +126,13 @@
         }
 
         var btn = el('auth-btn');
-        btn.disabled = true;
+        btn.disabled    = true;
         btn.textContent = '…';
 
         var deviceId = window.InkDeviceId || localStorage.getItem('ink_device_id');
 
         function done(err, res) {
-            btn.disabled = false;
+            btn.disabled    = false;
             btn.textContent = S.authMode === 'login' ? 'Log In' : 'Register';
 
             if (err || !res || res.status !== 'SUCCESS') {
@@ -146,7 +184,7 @@
         });
     }
 
-    // ── Chat workspace ────────────────────────────────────────────────────
+    // ── Chat workspace ─────────────────────────────────────────────────────
     function launchChat() {
         S.seenTs    = {};
         S.inbox     = [];
@@ -159,6 +197,7 @@
         el('msg-input').focus();
 
         el('msg-input').onkeydown = function (e) {
+            closeEmojiPicker();
             var enterSend = localStorage.getItem('setting_enter_to_send') !== 'false';
             if (e.keyCode === 13 && !e.shiftKey && enterSend) {
                 e.preventDefault();
@@ -168,79 +207,76 @@
 
         el('setting-enter').checked = localStorage.getItem('setting_enter_to_send') !== 'false';
 
-        if (localStorage.getItem('inkchat_rules_accepted') !== 'true') {
-            appendSystem('Rules: be respectful · no spam · no ads. Violations = ban.');
-            try { localStorage.setItem('inkchat_rules_accepted', 'true'); } catch (ex) {}
+        if (localStorage.getItem('inkchat_rules_seen') !== 'true') {
+            appendSystem('Be respectful · no spam. Violations = ban.');
+            try { localStorage.setItem('inkchat_rules_seen', 'true'); } catch (ex) {}
         }
 
-        appendSystem('Connected as @' + S.userId + '. Welcome to InkChat.');
+        appendSystem('Signed in as @' + S.userId);
         fetchAndRender();
         connectWS();
     }
 
-    // ── Message rendering — append-only ───────────────────────────────────
+    // ── Messages — append-only ─────────────────────────────────────────────
     function appendSystem(text) {
         var box = el('messages');
-        var d = doc.createElement('div');
-        d.className = 'msg msg-system';
+        var d   = doc.createElement('div');
+        d.className   = 'msg msg-system';
         d.textContent = text;
         box.appendChild(d);
         scrollDown(box);
     }
 
     function buildBubble(m) {
-        var myMask = maskedName(S.userId);
-        var isOut  = m.userId === myMask;
-        var isAdm  = m.role === 'admin';
+        var isOut = (m.userId === S.userId);
+        var isAdm = (m.role === 'admin');
 
-        var bubble = doc.createElement('div');
-        bubble.id  = 'msg-' + m.timestamp;
+        var bubble       = doc.createElement('div');
+        bubble.id        = 'msg-' + m.timestamp;
         bubble.className = 'msg ' + (isAdm ? 'msg-admin' : isOut ? 'msg-out' : 'msg-in');
 
-        // Quote block (reply preview)
+        // Reply quote
         if (m.replyTo) {
-            var q = doc.createElement('div');
+            var q       = doc.createElement('div');
             q.className = 'quote';
-            q.title = 'Jump to original';
+            q.title     = 'Jump to original';
             q.textContent = '@' + m.replyTo.userId + ': ' +
                 (m.replyTo.text.length > 60 ? m.replyTo.text.slice(0, 60) + '…' : m.replyTo.text);
-            (function (ts) {
-                q.onclick = function () { jumpTo(ts); };
-            })(m.replyTo.timestamp);
+            (function (ts) { q.onclick = function () { jumpTo(ts); }; })(m.replyTo.timestamp);
             bubble.appendChild(q);
         }
 
         // Meta row
-        var meta = doc.createElement('div');
+        var meta       = doc.createElement('div');
         meta.className = 'msg-meta';
 
         if (isAdm) {
-            var badge = doc.createElement('span');
-            badge.className = 'dev-badge';
+            var badge       = doc.createElement('span');
+            badge.className   = 'dev-badge';
             badge.textContent = 'DEV';
             meta.appendChild(badge);
         }
 
-        var name = doc.createElement('span');
-        name.className = 'msg-name';
+        var name       = doc.createElement('span');
+        name.className   = 'msg-name';
         name.textContent = m.userId;
         meta.appendChild(name);
 
-        var rb = doc.createElement('button');
-        rb.className = 'reply-btn';
-        rb.textContent = 'Reply';
+        var rb       = doc.createElement('button');
+        rb.className   = 'reply-btn';
+        rb.textContent = '↩ Reply';
         (function (msg) { rb.onclick = function () { setReply(msg); }; })(m);
         meta.appendChild(rb);
 
-        var t = doc.createElement('span');
-        t.className = 'msg-time';
+        var t       = doc.createElement('span');
+        t.className   = 'msg-time';
         t.textContent = fmtTime(m.timestamp);
         meta.appendChild(t);
 
         bubble.appendChild(meta);
 
-        var txt = doc.createElement('div');
-        txt.className = 'msg-text';
+        var txt       = doc.createElement('div');
+        txt.className   = 'msg-text';
         txt.textContent = m.text;
         bubble.appendChild(txt);
 
@@ -248,15 +284,15 @@
     }
 
     function renderMessages(rawList) {
-        var box   = el('messages');
+        var box    = el('messages');
         var wasLow = atBottom(box);
-        var chron = rawList.slice().reverse(); // oldest first
-        var added = false;
+        var chron  = rawList.slice().reverse();
+        var added  = false;
 
         for (var i = 0; i < chron.length; i++) {
             var m = null;
             try { m = JSON.parse(chron[i]); } catch (e) { continue; }
-            if (!m || !m.timestamp) continue;
+            if (!m || !m.timestamp)    continue;
             if (S.seenTs[m.timestamp]) continue;
 
             S.seenTs[m.timestamp] = true;
@@ -278,45 +314,53 @@
 
     // ── Inbox ─────────────────────────────────────────────────────────────
     function checkInbox(m) {
-        if (!S.userId) return;
-        if (m.userId === maskedName(S.userId)) return; // own message
+        if (!S.userId)                return;
+        if (m.userId === S.userId)    return;
         if (S.dismissed[m.timestamp]) return;
 
-        var myMask      = maskedName(S.userId);
-        var isReplyToMe = m.replyTo && (m.replyTo.userId === S.userId || m.replyTo.userId === myMask);
-        var isMentioned = m.text.toLowerCase().indexOf('@' + S.userId.toLowerCase()) !== -1;
+        var uid         = S.userId.toLowerCase();
+        var isReplyToMe = m.replyTo && (
+            m.replyTo.userId === S.userId ||
+            m.replyTo.userId.toLowerCase() === uid
+        );
+        var isMentioned = m.text.toLowerCase().indexOf('@' + uid) !== -1;
         if (!isReplyToMe && !isMentioned) return;
 
         for (var j = 0; j < S.inbox.length; j++) {
             if (S.inbox[j].timestamp === m.timestamp) return;
         }
         S.inbox.push(m);
-        el('inbox-btn').textContent = 'Inbox (' + S.inbox.length + ')';
+        updateInboxBtn();
+    }
+
+    function updateInboxBtn() {
+        el('inbox-btn').textContent = S.inbox.length > 0
+            ? 'Inbox (' + S.inbox.length + ')'
+            : 'Inbox';
     }
 
     // ── Send ──────────────────────────────────────────────────────────────
     function submitSend(e) {
         if (e && e.preventDefault) e.preventDefault();
+        closeEmojiPicker();
 
         var input = el('msg-input');
         var text  = input.value.trim();
         if (!text || S.sending) return false;
 
         var pendingReply = S.reply;
-
-        S.sending = true;
-        input.value = '';
+        S.sending    = true;
+        input.value  = '';
         hide('send-error');
         cancelReply();
 
         // Optimistic bubble
-        var tempId = 'opt-' + Date.now();
-        var myLabel = maskedName(S.userId) || S.userId;
-        var opt = doc.createElement('div');
-        opt.id = tempId;
+        var tempId    = 'opt-' + Date.now();
+        var opt       = doc.createElement('div');
+        opt.id        = tempId;
         opt.className = 'msg msg-out msg-pending';
         opt.innerHTML =
-            '<div class="msg-meta"><span class="msg-name">' + esc(myLabel) + '</span>' +
+            '<div class="msg-meta"><span class="msg-name">' + esc(S.userId) + '</span>' +
             '<span class="msg-time">sending…</span></div>' +
             '<div class="msg-text">' + esc(text) + '</div>';
         var box = el('messages');
@@ -334,12 +378,12 @@
             showSendErr(msg);
         }
 
-        var timer = setTimeout(function () {
+        var sendTimer = setTimeout(function () {
             if (S.sending) fail('Send timed out. Try again.');
         }, 7000);
 
         window.InkAPI.sendMessage(text, S.token, deviceId, pendingReply, function (err, res) {
-            clearTimeout(timer);
+            clearTimeout(sendTimer);
 
             if (err) {
                 fail(err.status === 429 ? 'Slow down — wait a moment.' :
@@ -383,7 +427,7 @@
         hide('reply-bar');
     }
 
-    // ── Polling fallback ──────────────────────────────────────────────────
+    // ── Polling / WebSocket ───────────────────────────────────────────────
     function fetchAndRender() {
         window.InkAPI.getMessages(function (err, msgs) {
             if (!err && Array.isArray(msgs)) renderMessages(msgs);
@@ -398,7 +442,6 @@
         if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
     }
 
-    // ── WebSocket ─────────────────────────────────────────────────────────
     function connectWS() {
         if (!window.WebSocket) { startPoll(); return; }
         if (S.ws && (S.ws.readyState === 0 || S.ws.readyState === 1)) return;
@@ -409,27 +452,19 @@
 
         S.ws = ws;
 
-        ws.onopen = function () {
-            stopPoll();
-            setStatus(true, 'Live');
-        };
-        ws.onmessage = function () {
-            fetchAndRender();
-        };
-        ws.onclose = function () {
+        ws.onopen    = function () { stopPoll(); setStatus(true); };
+        ws.onmessage = function () { fetchAndRender(); };
+        ws.onclose   = function () {
             S.ws = null;
-            setStatus(false, 'Reconnecting…');
-            if (S.userId) {
-                startPoll();
-                setTimeout(connectWS, 4000);
-            }
+            setStatus(false);
+            if (S.userId) { startPoll(); setTimeout(connectWS, 4000); }
         };
-        ws.onerror = function () {};
+        ws.onerror   = function () {};
     }
 
-    function setStatus(live, text) {
+    function setStatus(live) {
         el('status-dot').classList.toggle('live', live);
-        el('status-text').textContent = text;
+        el('status-text').textContent = live ? 'Live' : '';
     }
 
     // ── Sign out ──────────────────────────────────────────────────────────
@@ -441,7 +476,7 @@
     }
 
     // ── Modals ────────────────────────────────────────────────────────────
-    function openTos(e) { if (e) e.preventDefault(); show('tos-modal'); return false; }
+    function openTos(e)  { if (e) e.preventDefault(); show('tos-modal'); return false; }
     function closeTos()  { hide('tos-modal'); }
 
     function openInbox() {
@@ -456,13 +491,13 @@
 
         var clearWrap = doc.createElement('div');
         clearWrap.style.cssText = 'text-align:right;margin-bottom:10px;';
-        var clearBtn = doc.createElement('button');
-        clearBtn.className = 'btn btn-sm';
+        var clearBtn       = doc.createElement('button');
+        clearBtn.className   = 'btn btn-sm';
         clearBtn.textContent = 'Clear All';
         clearBtn.onclick = function () {
             for (var i = 0; i < S.inbox.length; i++) S.dismissed[S.inbox[i].timestamp] = true;
             S.inbox = [];
-            el('inbox-btn').textContent = 'Inbox (0)';
+            updateInboxBtn();
             closeInbox();
         };
         clearWrap.appendChild(clearBtn);
@@ -470,9 +505,12 @@
 
         for (var i = 0; i < S.inbox.length; i++) {
             (function (m) {
-                var myMask = maskedName(S.userId);
-                var isRep  = m.replyTo && (m.replyTo.userId === S.userId || m.replyTo.userId === myMask);
-                var tag    = isRep ? 'REPLY' : 'MENTION';
+                var uid   = S.userId.toLowerCase();
+                var isRep = m.replyTo && (
+                    m.replyTo.userId === S.userId ||
+                    m.replyTo.userId.toLowerCase() === uid
+                );
+                var tag = isRep ? 'REPLY' : 'MENTION';
 
                 var item = doc.createElement('div');
                 item.style.cssText = 'border:2px solid #000;padding:11px;margin-bottom:10px;background:#fff;box-shadow:2px 2px 0 #ccc;';
@@ -481,25 +519,25 @@
                         '<strong style="background:#000;color:#fff;padding:1px 5px;font-size:10px;margin-right:5px;">' + tag + '</strong>' +
                         'from @' + esc(m.userId) +
                     '</div>' +
-                    '<div style="font-size:13px;font-weight:bold;margin-bottom:8px;">' + esc(m.text) + '</div>';
+                    '<div style="font-size:13px;margin-bottom:8px;">' + esc(m.text) + '</div>';
 
                 var btns = doc.createElement('div');
-                btns.style.cssText = 'text-align:right;display:flex;gap:6px;justify-content:flex-end;';
+                btns.style.cssText = 'display:flex;gap:6px;justify-content:flex-end;';
 
-                var dismissBtn = doc.createElement('button');
-                dismissBtn.className = 'btn btn-sm';
+                var dismissBtn       = doc.createElement('button');
+                dismissBtn.className   = 'btn btn-sm';
                 dismissBtn.textContent = 'Dismiss';
                 dismissBtn.onclick = function () {
                     S.dismissed[m.timestamp] = true;
                     S.inbox = S.inbox.filter(function (x) { return x.timestamp !== m.timestamp; });
-                    el('inbox-btn').textContent = 'Inbox (' + S.inbox.length + ')';
+                    updateInboxBtn();
                     closeInbox();
                     openInbox();
                 };
 
-                var focusBtn = doc.createElement('button');
-                focusBtn.className = 'btn btn-sm';
-                focusBtn.textContent = 'Focus';
+                var focusBtn       = doc.createElement('button');
+                focusBtn.className   = 'btn btn-sm';
+                focusBtn.textContent = 'Go To';
                 focusBtn.onclick = function () { closeInbox(); jumpTo(m.timestamp); };
 
                 btns.appendChild(dismissBtn);
@@ -531,10 +569,10 @@
         var b = el('pw-toggle');
         if (f.style.display === 'none') {
             f.style.display = 'block';
-            b.textContent = 'Cancel';
+            b.textContent   = 'Cancel';
         } else {
             f.style.display = 'none';
-            b.textContent = 'Change Password';
+            b.textContent   = 'Change Password';
             el('pw-old').value = el('pw-new').value = el('pw-confirm').value = '';
             el('pw-status').style.display = 'none';
         }
@@ -542,12 +580,11 @@
 
     function submitPwChange() {
         var old = el('pw-old').value, nw = el('pw-new').value, cf = el('pw-confirm').value;
-        var st  = el('pw-status');
-        st.style.display = 'none';
+        el('pw-status').style.display = 'none';
 
-        if (!old || !nw || !cf)     { setPwStatus('Fill in all fields.',       'red'); return; }
-        if (nw !== cf)              { setPwStatus('Passwords do not match.',    'red'); return; }
-        if (nw.length < 4)          { setPwStatus('Minimum 4 characters.',      'red'); return; }
+        if (!old || !nw || !cf) { setPwStatus('Fill in all fields.',     'red'); return; }
+        if (nw !== cf)          { setPwStatus('Passwords do not match.', 'red'); return; }
+        if (nw.length < 4)      { setPwStatus('Minimum 4 characters.',   'red'); return; }
 
         window.InkAPI.changePassword(old, nw, S.token, function (err, res) {
             if (err || !res || res.status !== 'SUCCESS') {
@@ -571,11 +608,16 @@
     function onInkReady() {
         S.deviceId = window.InkDeviceId;
 
+        // Inject emoji picker into DOM above the input row
+        var inputRow = el('input-row');
+        if (inputRow) {
+            inputRow.parentNode.insertBefore(buildEmojiPicker(), inputRow);
+        }
+
         restoreSession(function (ok) {
             if (ok) {
                 launchChat();
             } else {
-                // Hide register tab if user has registered before
                 if (localStorage.getItem('inkchat_registered') === 'true') {
                     el('tab-reg').style.display = 'none';
                 }
@@ -587,23 +629,24 @@
     if (window.addEventListener) {
         window.addEventListener('inkReady', onInkReady, false);
     }
-    // Fallback: if load event already fired before script ran
     if (window.InkDeviceId && !S.userId) onInkReady();
 
-    // ── Expose to HTML inline handlers ────────────────────────────────────
-    window.switchTab      = switchTab;
-    window.submitAuth     = submitAuth;
-    window.submitSend     = submitSend;
-    window.cancelReply    = cancelReply;
-    window.signOut        = signOut;
-    window.openTos        = openTos;
-    window.closeTos       = closeTos;
-    window.openInbox      = openInbox;
-    window.closeInbox     = closeInbox;
-    window.openSettings   = openSettings;
-    window.closeSettings  = closeSettings;
-    window.saveSettings   = saveSettings;
-    window.togglePwForm   = togglePwForm;
-    window.submitPwChange = submitPwChange;
+    // ── Expose to HTML ────────────────────────────────────────────────────
+    window.switchTab         = switchTab;
+    window.submitAuth        = submitAuth;
+    window.submitSend        = submitSend;
+    window.cancelReply       = cancelReply;
+    window.signOut           = signOut;
+    window.openTos           = openTos;
+    window.closeTos          = closeTos;
+    window.openInbox         = openInbox;
+    window.closeInbox        = closeInbox;
+    window.openSettings      = openSettings;
+    window.closeSettings     = closeSettings;
+    window.saveSettings      = saveSettings;
+    window.togglePwForm      = togglePwForm;
+    window.submitPwChange    = submitPwChange;
+    window.toggleEmojiPicker = toggleEmojiPicker;
+    window.closeEmojiPicker  = closeEmojiPicker;
 
 }(window, document));

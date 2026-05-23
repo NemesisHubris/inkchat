@@ -424,9 +424,10 @@ async function getMessages(request, env, cors) {
 async function sendMessage(request, env, cors, ctx) {
     try {
         const body      = await request.json();
-        const text      = (body.text || '').trim();
-        const token     = body.sessionToken;
-        const deviceId  = body.ink_device_id;
+        const text     = (body.text || '').trim();
+        const deviceId = body.ink_device_id;
+        // Accept token from body or fall back to cookies (handles admin cookie-only sessions)
+        const token    = body.sessionToken || getCookie(request, ADMIN_COOKIE) || getCookie(request, SESSION_COOKIE);
 
         if (!text)  return json({ status: 'ERROR', message: 'text is required.' }, 400, cors);
         if (!token) return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
@@ -485,7 +486,7 @@ async function sendMessage(request, env, cors, ctx) {
         const msg = {
             text,
             timestamp: Date.now(),
-            userId:    isAdmin ? 'Admin' : mask(username),
+            userId:    isAdmin ? 'Admin' : username,
             role:      isAdmin ? 'admin' : 'user'
         };
         if (body.replyTo) {
@@ -549,14 +550,23 @@ async function register(request, env, cors) {
             if (result.flagged) return json({ status: 'ERROR', message: 'Username violates content policy.' }, 400, cors);
         } catch (_) {}
 
+        const fp      = body.hardware_fingerprint || null;
         const userKey = `user:${norm}`;
-        const existing = flatMap(await redis(['HGETALL', userKey], env));
+
+        // Check for device already registered (fingerprint reverse index)
+        const [existingRaw, fpOwner] = await Promise.all([
+            redis(['HGETALL', userKey], env),
+            fp ? redis(['GET', `fp_to_user:${fp}`], env) : Promise.resolve(null)
+        ]);
+        const existing = flatMap(existingRaw);
         if (existing.password_hash) return json({ status: 'ERROR', message: 'Username is taken.' }, 400, cors);
+        if (fpOwner && fpOwner !== norm) {
+            return json({ status: 'ERROR', message: 'This device is already registered to another account. Please log in instead.' }, 403, cors);
+        }
 
         const clientIp  = request.cf?.connectingIp || '127.0.0.1';
         const geo       = extractGeo(request);
         const deviceId  = crypto.randomUUID();
-        const fp        = body.hardware_fingerprint || null;
         const hash      = await hashPassword(norm, password, env);
         const token     = await createSession(norm, env);
 
@@ -567,6 +577,7 @@ async function register(request, env, cors) {
             'linked_fingerprints', JSON.stringify(fp ? [fp] : [])
         ], env);
         storeGeo(clientIp, geo, env);
+        if (fp) await redis(['SET', `fp_to_user:${fp}`, norm, 'EX', String(86400 * 730)], env);
 
         return jsonWithCookies(
             { status: 'SUCCESS', username: norm, token, ink_device_id: deviceId },
