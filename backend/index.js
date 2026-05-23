@@ -123,6 +123,11 @@ export default {
             return await handleLogin(request, env, corsHeaders);
         }
 
+        // Change Password Route: POST /api/change-password
+        if (url.pathname === "/api/change-password" && request.method === "POST") {
+            return await handleChangePassword(request, env, corsHeaders);
+        }
+
         // Administrative Routes
         if (url.pathname === "/api/admin/login" && request.method === "POST") {
             return await handleAdminLogin(request, env, corsHeaders);
@@ -134,6 +139,18 @@ export default {
 
         if (url.pathname === "/api/admin/ban" && request.method === "POST") {
             return await handleAdminBan(request, env, corsHeaders);
+        }
+
+        if (url.pathname === "/api/admin/delete-message" && request.method === "POST") {
+            return await handleAdminDeleteMessage(request, env, corsHeaders);
+        }
+
+        if (url.pathname === "/api/admin/purge-messages" && request.method === "POST") {
+            return await handleAdminPurgeMessages(request, env, corsHeaders);
+        }
+
+        if (url.pathname === "/api/admin/mute-user" && request.method === "POST") {
+            return await handleAdminMuteUser(request, env, corsHeaders);
         }
 
         // Default Fallback Route
@@ -219,7 +236,10 @@ function flatArrayToObject(arr) {
  */
 async function hashPassword(username, password, env) {
     const encoder = new TextEncoder();
-    const salt = env.PASSWORD_SALT || "inkchat-salt-2026";
+    const salt = env.PASSWORD_SALT;
+    if (!salt) {
+        throw new Error("Edge Environment Configuration Error: PASSWORD_SALT is not defined.");
+    }
     const data = encoder.encode(username.toLowerCase() + ":" + password + ":" + salt);
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -507,166 +527,200 @@ async function handleSendMessage(request, env, corsHeaders) {
         const sessionToken = body.sessionToken; // Secure cryptographic token
         const fingerprint = body.fingerprint;
 
-        if (!text || !sessionToken || !fingerprint) {
+        if (!text || !sessionToken) {
             return new Response(JSON.stringify({
                 status: "ERROR",
-                message: "Missing parameter: text, sessionToken, and fingerprint are required."
+                message: "Missing parameter: text and sessionToken are required."
             }), {
                 status: 400,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
         }
 
-        // Global Room Cooldown Check: Stop automated script flooding (429)
-        const globalCooldown = await queryUpstash(["GET", "chat:cooldown"], env);
-        if (globalCooldown) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Slow down! Chat is moving too fast."
-            }), {
-                status: 429,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
+        // 1. Session Token Validation
+        let username = null;
+        let isAdmin = false;
+
+        // Check if it is a valid admin session
+        const adminCheck = await queryUpstash(["GET", `session:admin:${sessionToken}`], env);
+        if (adminCheck) {
+            username = "Admin";
+            isAdmin = true;
+        } else {
+            // Check standard user session
+            const sessionUser = await queryUpstash(["GET", `session:${sessionToken}`], env);
+            if (!sessionUser) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Unauthorized: Invalid or expired session token."
+                }), {
+                    status: 401,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
+            username = sessionUser;
         }
 
-        // Threat 3: Payload Validation & Size Limits (500 character limit protection)
-        if (text.length > 500) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Payload too large: Messages are strictly limited to 500 characters."
-            }), {
-                status: 413,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
+        // 2. Perform Standard Policy Checks if NOT Admin
+        if (!isAdmin) {
+            if (!fingerprint) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Missing parameter: fingerprint is required for standard users."
+                }), {
+                    status: 400,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
 
-        // Cryptographic Session Token Verification: Query Redis for session token
-        const sessionUser = await queryUpstash(["GET", `session:${sessionToken}`], env);
-        if (!sessionUser) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Unauthorized: Invalid or expired session token."
-            }), {
-                status: 401,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-        const username = sessionUser; // Authenticated User ID
+            // Mute Check: Verify if user is currently muted
+            const isMuted = await queryUpstash(["GET", `mute:${username.toLowerCase()}`], env);
+            if (isMuted) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Access Denied: You have been temporarily muted by an administrator."
+                }), {
+                    status: 403,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
 
-        // Threat 2: Application-Level Rate Limiting (Max 3 messages per 5 seconds per token)
-        const rateKey = `rate:send-message:${sessionToken}`;
-        const currentCount = await queryUpstash(["INCR", rateKey], env);
-        if (currentCount === 1) {
-            // New window - set 5-second sliding expiration
-            await queryUpstash(["EXPIRE", rateKey, "5"], env);
-        }
-        if (currentCount > 3) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Rate limit exceeded: You can only transmit 3 messages per 5 seconds."
-            }), {
-                status: 429,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
+            // Global Room Cooldown Check: Stop automated script flooding (429)
+            const globalCooldown = await queryUpstash(["GET", "chat:cooldown"], env);
+            if (globalCooldown) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Slow down! Chat is moving too fast."
+                }), {
+                    status: 429,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
 
-        // Proactive Security: Enforce device lockout if hardware is BANNED
-        const deviceKey = `device:${fingerprint}`;
-        const deviceCheck = await queryUpstash(["GET", deviceKey], env);
-        if (deviceCheck === "BANNED") {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "This hardware node is banned permanently."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
+            // Threat 3: Payload Validation & Size Limits (500 character limit protection)
+            if (text.length > 500) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Payload too large: Messages are strictly limited to 500 characters."
+                }), {
+                    status: 413,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
 
-        // Active Account Policy: Enforce 1-account-per-device (compare verified username)
-        if (deviceCheck && deviceCheck !== username) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Enforcing security policy: Only one account allowed per physical device."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
+            // Threat 2: Application-Level Rate Limiting (Max 3 messages per 5 seconds per token)
+            const rateKey = `rate:send-message:${sessionToken}`;
+            const currentCount = await queryUpstash(["INCR", rateKey], env);
+            if (currentCount === 1) {
+                // New window - set 5-second sliding expiration
+                await queryUpstash(["EXPIRE", rateKey, "5"], env);
+            }
+            if (currentCount > 3) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Rate limit exceeded: You can only transmit 3 messages per 5 seconds."
+                }), {
+                    status: 429,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
 
-        // Duplicate Message Blocker: Check if last message matches incoming text (409)
-        const lastMessageRaw = await queryUpstash(["LINDEX", "chat:messages", "0"], env);
-        if (lastMessageRaw) {
-            try {
-                const lastMsg = JSON.parse(lastMessageRaw);
-                if (lastMsg && lastMsg.text === text) {
-                    return new Response(JSON.stringify({
-                        status: "ERROR",
-                        message: "Duplicate message blocked."
-                    }), {
-                        status: 409,
-                        headers: { ...corsHeaders, "Content-Type": "application/json" }
-                    });
+            // Proactive Security: Enforce device lockout if hardware is BANNED
+            const deviceKey = `device:${fingerprint}`;
+            const deviceCheck = await queryUpstash(["GET", deviceKey], env);
+            if (deviceCheck === "BANNED") {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "This hardware node is banned permanently."
+                }), {
+                    status: 403,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
+
+            // Active Account Policy: Enforce 1-account-per-device (compare verified username)
+            if (deviceCheck && deviceCheck !== username) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: "Enforcing security policy: Only one account allowed per physical device."
+                }), {
+                    status: 403,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
+            }
+
+            // Duplicate Message Blocker: Check if last message matches incoming text (409)
+            const lastMessageRaw = await queryUpstash(["LINDEX", "chat:messages", "0"], env);
+            if (lastMessageRaw) {
+                try {
+                    const lastMsg = JSON.parse(lastMessageRaw);
+                    if (lastMsg && lastMsg.text === text) {
+                        return new Response(JSON.stringify({
+                            status: "ERROR",
+                            message: "Duplicate message blocked."
+                        }), {
+                            status: 409,
+                            headers: { ...corsHeaders, "Content-Type": "application/json" }
+                        });
+                    }
+                } catch (e) {
+                    // Ignore parsing errors
                 }
-            } catch (e) {
-                // Ignore parsing errors for older legacy/corrupted formats
+            }
+
+            // Security check: OpenAI Content Moderation
+            const openaiKey = env.OPENAI_API_KEY;
+            if (!openaiKey) {
+                throw new Error("OpenAI API key binding is missing.");
+            }
+
+            const modResponse = await fetch("https://api.openai.com/v1/moderations", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${openaiKey}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    input: text,
+                    model: "omni-moderation-latest"
+                })
+            });
+
+            if (!modResponse.ok) {
+                throw new Error(`OpenAI Moderation Endpoint HTTP ${modResponse.status}`);
+            }
+
+            const modData = await modResponse.json();
+            
+            // Multi-tier safety threshold filter evaluation
+            const evalResult = evaluateSafetyMultiTier(modData);
+
+            if (evalResult.flagged) {
+                return new Response(JSON.stringify({
+                    status: "ERROR",
+                    message: `Message blocked: Content policy violation detected [Reason: ${evalResult.reason}].`
+                }), {
+                    status: 400,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" }
+                });
             }
         }
 
-        // Security check: OpenAI Content Moderation
-        const openaiKey = env.OPENAI_API_KEY;
-        if (!openaiKey) {
-            throw new Error("OpenAI API key binding is missing.");
-        }
-
-        const modResponse = await fetch("https://api.openai.com/v1/moderations", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${openaiKey}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                input: text,
-                model: "omni-moderation-latest"
-            })
-        });
-
-        if (!modResponse.ok) {
-            throw new Error(`OpenAI Moderation Endpoint HTTP ${modResponse.status}`);
-        }
-
-        const modData = await modResponse.json();
-        
-        // Multi-tier safety threshold filter evaluation
-        const evalResult = evaluateSafetyMultiTier(modData);
-
-        if (evalResult.flagged) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: `Message blocked: Content policy violation detected [Reason: ${evalResult.reason}].`
-            }), {
-                status: 400,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // Mask the user ID to preserve client anonymity in the logs (e.g. username -> usern***me)
+        // 3. Compile message payload
         let maskedUserId = username;
-        if (username.length > 6) {
+        if (!isAdmin && username.length > 6) {
             maskedUserId = username.substring(0, 5) + "***" + username.substring(username.length - 2);
         }
 
-        // Compile clean, structured message object
         const messageObject = {
             text: text,
             timestamp: Date.now(),
             userId: maskedUserId,
-            fingerprint: fingerprint.substring(0, 8) + "..." // Shorten signature reference
+            fingerprint: isAdmin ? "admin" : (fingerprint.substring(0, 8) + "...")
         };
         const messageObjectString = JSON.stringify(messageObject);
 
-        // Perform optimized pipelined database writes in a single round-trip nested array to reduce latency
-        // Latency pipeline safety checks handled securely by queryUpstash array parsers
+        // Perform LPUSH database writes
         await queryUpstash([
             ["LPUSH", "chat:messages", messageObjectString],
             ["LTRIM", "chat:messages", "0", "99"],
@@ -961,9 +1015,19 @@ async function handleLogin(request, env, corsHeaders) {
  */
 async function handleAdminLogin(request, env, corsHeaders) {
     try {
+        const expectedPassword = env.ADMIN_PASSWORD;
+        if (!expectedPassword) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Administrative authentication is currently unavailable: Server credentials are unconfigured."
+            }), {
+                status: 500,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
         const body = await request.json();
         const password = body.password;
-        const expectedPassword = env.ADMIN_PASSWORD || "inkchat-admin-2026";
 
         if (!password || password !== expectedPassword) {
             return new Response(JSON.stringify({
@@ -1168,7 +1232,10 @@ async function handleAdminBan(request, env, corsHeaders) {
 async function generateSignedNonce(env) {
     const uuid = crypto.randomUUID();
     const timestamp = Date.now();
-    const salt = env.PASSWORD_SALT || "inkchat-salt-2026";
+    const salt = env.PASSWORD_SALT;
+    if (!salt) {
+        throw new Error("Edge Environment Configuration Error: PASSWORD_SALT is not defined.");
+    }
     
     const encoder = new TextEncoder();
     const data = encoder.encode(`${uuid}:${timestamp}:${salt}`);
@@ -1199,7 +1266,10 @@ async function verifySignedNonce(nonce, env) {
         return { valid: false, error: "EXPIRED" };
     }
     
-    const salt = env.PASSWORD_SALT || "inkchat-salt-2026";
+    const salt = env.PASSWORD_SALT;
+    if (!salt) {
+        return { valid: false, error: "SALT_UNCONFIGURED" };
+    }
     const encoder = new TextEncoder();
     const data = encoder.encode(`${uuid}:${timestamp}:${salt}`);
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
@@ -1336,6 +1406,241 @@ async function handleSecurityVerify(request, env, corsHeaders) {
         return new Response(JSON.stringify({
             status: "ERROR",
             message: `Verification failure: ${err.message}`
+        }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
+ * Handler: POST /api/change-password
+ * Securely changes a user's password, strictly validating their old password first.
+ */
+async function handleChangePassword(request, env, corsHeaders) {
+    try {
+        const body = await request.json();
+        const sessionToken = body.sessionToken;
+        const oldPassword = body.oldPassword;
+        const newPassword = body.newPassword;
+
+        if (!sessionToken || !oldPassword || !newPassword) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Missing parameters: sessionToken, oldPassword, and newPassword are required."
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // 1. Verify user session
+        const sessionUser = await queryUpstash(["GET", `session:${sessionToken}`], env);
+        if (!sessionUser) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Unauthorized: Invalid or expired session token."
+            }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+        const username = sessionUser;
+
+        // 2. Fetch current password hash from database
+        const userKey = `user:${username.toLowerCase()}`;
+        const userRaw = await queryUpstash(["HGETALL", userKey], env);
+        const userData = flatArrayToObject(userRaw);
+
+        if (!userData.password_hash) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "User profile not found."
+            }), {
+                status: 404,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // 3. Verify old password hash
+        const oldPasswordHash = await hashPassword(username, oldPassword, env);
+        if (userData.password_hash !== oldPasswordHash) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Incorrect old password."
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // 4. Update with new password hash
+        const newPasswordHash = await hashPassword(username, newPassword, env);
+        await queryUpstash(["HSET", userKey, "password_hash", newPasswordHash], env);
+
+        return new Response(JSON.stringify({
+            status: "SUCCESS",
+            message: "Password updated successfully."
+        }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+
+    } catch (err) {
+        return new Response(JSON.stringify({
+            status: "ERROR",
+            message: `Password change failed: ${err.message}`
+        }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
+ * Handler: POST /api/admin/delete-message
+ * Wipes a specific message JSON frame from the chat database using atomic LREM.
+ */
+async function handleAdminDeleteMessage(request, env, corsHeaders) {
+    try {
+        const isAdmin = await verifyAdminSession(request, env);
+        if (!isAdmin) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Unauthorized: Invalid or expired administrator session."
+            }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        const body = await request.json();
+        const messageRaw = body.messageRaw;
+
+        if (!messageRaw) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Missing parameter: messageRaw is required."
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // Remove the exact matching entry from the list
+        await queryUpstash(["LREM", "chat:messages", "1", messageRaw], env);
+
+        return new Response(JSON.stringify({
+            status: "SUCCESS",
+            message: "Message successfully deleted."
+        }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({
+            status: "ERROR",
+            message: `Message deletion failed: ${err.message}`
+        }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
+ * Handler: POST /api/admin/purge-messages
+ * Deletes all messages up to this point from the chat box list in Redis.
+ */
+async function handleAdminPurgeMessages(request, env, corsHeaders) {
+    try {
+        const isAdmin = await verifyAdminSession(request, env);
+        if (!isAdmin) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Unauthorized: Invalid or expired administrator session."
+            }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        await queryUpstash(["DEL", "chat:messages"], env);
+
+        return new Response(JSON.stringify({
+            status: "SUCCESS",
+            message: "Successfully deleted all messages up to this point."
+        }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({
+            status: "ERROR",
+            message: `Failed to purge chat logs: ${err.message}`
+        }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    }
+}
+
+/**
+ * Handler: POST /api/admin/mute-user
+ * Mutes a user account temporarily for a specified period of time.
+ */
+async function handleAdminMuteUser(request, env, corsHeaders) {
+    try {
+        const isAdmin = await verifyAdminSession(request, env);
+        if (!isAdmin) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Unauthorized: Invalid or expired administrator session."
+            }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        const body = await request.json();
+        const username = body.username;
+        const durationSeconds = body.durationSeconds;
+
+        if (!username || !durationSeconds) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Missing parameter: username and durationSeconds are required."
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        const duration = parseInt(durationSeconds, 10);
+        if (isNaN(duration) || duration <= 0) {
+            return new Response(JSON.stringify({
+                status: "ERROR",
+                message: "Invalid mute duration specified."
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        // Set mute key in Upstash Redis
+        await queryUpstash(["SET", `mute:${username.toLowerCase()}`, "1", "EX", duration.toString()], env);
+
+        return new Response(JSON.stringify({
+            status: "SUCCESS",
+            message: `Successfully muted user ${username} for ${duration} seconds.`
+        }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+    } catch (err) {
+        return new Response(JSON.stringify({
+            status: "ERROR",
+            message: `Failed to mute user: ${err.message}`
         }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" }

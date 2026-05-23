@@ -312,6 +312,9 @@
                     <div class="input-group">
                         <label for="authPassword">Password</label>
                         <input id="authPassword" type="password" class="auth-input" required>
+                        <div style="font-size: 11px; margin-top: 8px; line-height: 1.4; color: #555555; text-align: left;">
+                            Forgotten password? Contact <strong style="text-decoration: underline;">admin@kindlemodshelf.me</strong> or DM <strong style="text-decoration: underline;">@kindlemodshelfguy</strong> on Kindle Tweaks Discord.
+                        </div>
                     </div>
                     <div id="tosRow" class="tos-row" style="display: none;">
                         <input id="tosCheck" type="checkbox">
@@ -343,6 +346,7 @@
         <div class="header">
             <h1>InkChat</h1>
             <div id="badge" class="status-badge status-ready">Secure Link Active</div>
+            <button onclick="handleSignOut();" style="display: block; margin: 10px auto 0; background: none; border: 2px solid #000000; padding: 4px 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; cursor: pointer;">Sign Out</button>
         </div>
 
         <div id="chatBox" class="chat-box"></div>
@@ -358,6 +362,27 @@
             <strong>Logged Account:</strong> <span id="userIdDisplay">Loading...</span><br>
             <strong>Active Device Token:</strong> <span id="deviceToken">Verifying...</span><br>
             <strong>E-Ink Optimization:</strong> Polling Engine active (5000ms loop). High contrast active.
+        </div>
+
+        <div style="margin-top: 15px; border-top: 1px dashed #000000; padding-top: 10px; text-align: left;">
+            <button id="toggleChangePasswordBtn" onclick="toggleChangePasswordForm();" style="background: none; border: 2px solid #000000; padding: 4px 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; cursor: pointer; display: block; width: 100%;">Change Password</button>
+            
+            <div id="changePasswordFormContainer" style="display: none; margin-top: 10px; border: 2px solid #000000; padding: 12px; background: #fafafa;">
+                <div class="input-group">
+                    <label for="oldPasswordInput" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">Current Password</label>
+                    <input id="oldPasswordInput" type="password" class="auth-input" style="padding: 6px; font-size: 13px;" required>
+                </div>
+                <div class="input-group" style="margin-top: 8px;">
+                    <label for="newPasswordInput" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">New Password</label>
+                    <input id="newPasswordInput" type="password" class="auth-input" style="padding: 6px; font-size: 13px;" required>
+                </div>
+                <div class="input-group" style="margin-top: 8px;">
+                    <label for="confirmNewPasswordInput" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 4px;">Confirm New Password</label>
+                    <input id="confirmNewPasswordInput" type="password" class="auth-input" style="padding: 6px; font-size: 13px;" required>
+                </div>
+                <button onclick="submitChangePassword();" style="margin-top: 12px; width: 100%; background: #000000; color: #ffffff; border: none; padding: 8px; font-size: 12px; font-weight: bold; text-transform: uppercase; cursor: pointer;">Save Changes</button>
+                <div id="changePasswordStatus" style="display: none; margin-top: 8px; font-size: 11px; font-weight: bold; text-align: center; border: 1px solid #000000; padding: 4px; background: #ffffff;"></div>
+            </div>
         </div>
     </div>
 
@@ -395,7 +420,7 @@
         if (window.addEventListener) {
             window.addEventListener("inkDeviceReady", function(e) {
                 activeDeviceFingerprint = e.detail.fingerprint;
-                document.getElementById("deviceToken").innerHTML = activeDeviceFingerprint.substring(0, 15) + "...";
+                document.getElementById("deviceToken").textContent = activeDeviceFingerprint.substring(0, 15) + "...";
                 
                 // Session Check: If secure token cookie exists, bypass login overlay and jump to workspace
                 activeSessionToken = getCookie("inkchat_session_token");
@@ -409,7 +434,7 @@
         } else if (window.attachEvent) {
             window.attachEvent("oninkDeviceReady", function(e) {
                 activeDeviceFingerprint = e.detail.fingerprint;
-                document.getElementById("deviceToken").innerHTML = activeDeviceFingerprint.substring(0, 15) + "...";
+                document.getElementById("deviceToken").textContent = activeDeviceFingerprint.substring(0, 15) + "...";
                 
                 activeSessionToken = getCookie("inkchat_session_token");
                 activeUserId = getCookie("inkchat_username");
@@ -436,12 +461,12 @@
                 tabLogin.className = "auth-tab tab-active";
                 tabRegister.className = "auth-tab";
                 tosRow.style.display = "none";
-                authBtn.innerHTML = "Log In";
+                authBtn.textContent = "Log In";
             } else {
                 tabLogin.className = "auth-tab";
                 tabRegister.className = "auth-tab tab-active";
                 tosRow.style.display = "flex";
-                authBtn.innerHTML = "Register & Log In";
+                authBtn.textContent = "Register & Log In";
             }
         }
 
@@ -475,14 +500,14 @@
             // Enforce username constraints (alphanumeric only, no spaces)
             var cleanUsername = username.replace(/[^a-zA-Z0-9_]/g, "");
             if (cleanUsername !== username) {
-                authError.innerHTML = "Username must be alphanumeric (letters, numbers, underscores) only.";
+                authError.textContent = "Username must be alphanumeric (letters, numbers, underscores) only.";
                 authError.style.display = "block";
                 return false;
             }
 
             // Registration Check: Verify Terms agreement
             if (authMode === "register" && !tosCheck.checked) {
-                authError.innerHTML = "You must agree to the Terms of Use to register an account.";
+                authError.textContent = "You must agree to the Terms of Use to register an account.";
                 authError.style.display = "block";
                 return false;
             }
@@ -541,7 +566,7 @@
 
         function initializeChatWorkspace() {
             // Display username in metadata
-            document.getElementById("userIdDisplay").innerHTML = activeUserId;
+            document.getElementById("userIdDisplay").textContent = activeUserId;
 
             // Display workspace panel
             document.getElementById("mainWorkspace").style.display = "block";
@@ -641,7 +666,22 @@
                         timeLabel.className = "msg-time";
                         timeLabel.textContent = timeString; // Secure text insertion
 
+                        var replyLink = document.createElement("span");
+                        replyLink.style.marginLeft = "10px";
+                        replyLink.style.textDecoration = "underline";
+                        replyLink.style.cursor = "pointer";
+                        replyLink.style.fontWeight = "bold";
+                        replyLink.textContent = "[Reply]";
+                        (function (userToReply) {
+                            replyLink.onclick = function () {
+                                var input = document.getElementById("messageInput");
+                                input.value = "[Reply to @" + userToReply + "]: ";
+                                input.focus();
+                            };
+                        })(msgObj.userId);
+
                         meta.appendChild(userLabel);
+                        meta.appendChild(replyLink);
                         meta.appendChild(timeLabel);
 
                         var textDiv = document.createElement("div");
@@ -748,6 +788,90 @@
             }
 
             return false;
+        }
+
+        function handleSignOut() {
+            document.cookie = "inkchat_session_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict; Secure";
+            document.cookie = "inkchat_username=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict; Secure";
+            window.location.reload();
+        }
+
+        function toggleChangePasswordForm() {
+            var container = document.getElementById("changePasswordFormContainer");
+            var btn = document.getElementById("toggleChangePasswordBtn");
+            if (container.style.display === "none") {
+                container.style.display = "block";
+                btn.textContent = "Cancel Password Change";
+            } else {
+                container.style.display = "none";
+                btn.textContent = "Change Password";
+                document.getElementById("oldPasswordInput").value = "";
+                document.getElementById("newPasswordInput").value = "";
+                document.getElementById("confirmNewPasswordInput").value = "";
+                document.getElementById("changePasswordStatus").style.display = "none";
+            }
+        }
+
+        function submitChangePassword() {
+            var oldPass = document.getElementById("oldPasswordInput").value;
+            var newPass = document.getElementById("newPasswordInput").value;
+            var confirmNewPass = document.getElementById("confirmNewPasswordInput").value;
+            var statusDiv = document.getElementById("changePasswordStatus");
+
+            statusDiv.style.display = "none";
+
+            if (!oldPass || !newPass || !confirmNewPass) {
+                statusDiv.style.color = "red";
+                statusDiv.textContent = "Please fill in all fields.";
+                statusDiv.style.display = "block";
+                return;
+            }
+
+            if (newPass !== confirmNewPass) {
+                statusDiv.style.color = "red";
+                statusDiv.textContent = "New passwords do not match.";
+                statusDiv.style.display = "block";
+                return;
+            }
+
+            if (newPass.length < 4) {
+                statusDiv.style.color = "red";
+                statusDiv.textContent = "Password must be at least 4 characters.";
+                statusDiv.style.display = "block";
+                return;
+            }
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "https://slatechat-proxy.kindlemodshelf.workers.dev/api/change-password", true);
+            xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200) {
+                        statusDiv.style.color = "#000000";
+                        statusDiv.textContent = "Password changed successfully!";
+                        statusDiv.style.display = "block";
+                        
+                        setTimeout(function () {
+                            toggleChangePasswordForm();
+                        }, 2000);
+                    } else {
+                        var errObj = null;
+                        try {
+                            errObj = JSON.parse(xhr.responseText);
+                        } catch (e) {}
+                        var msg = (errObj && errObj.message) ? errObj.message : "Password change failed.";
+                        statusDiv.style.color = "red";
+                        statusDiv.textContent = msg;
+                        statusDiv.style.display = "block";
+                    }
+                }
+            };
+
+            xhr.send(JSON.stringify({
+                sessionToken: activeSessionToken,
+                oldPassword: oldPass,
+                newPassword: newPass
+            }));
         }
     </script>
 </body>

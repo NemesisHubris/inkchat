@@ -142,7 +142,7 @@
         /* Dashboard Container */
         .dashboard-container {
             width: 100%;
-            max-width: 1140px;
+            max-width: 1400px;
             margin: 40px auto;
             animation: fadeIn 0.6s ease-out;
             display: none; /* Hidden by default */
@@ -181,8 +181,8 @@
 
         .dash-grid {
             display: grid;
-            grid-template-columns: 1.4fr 1fr;
-            gap: 30px;
+            grid-template-columns: 1fr 1.2fr 1fr;
+            gap: 25px;
         }
 
         .panel {
@@ -420,6 +420,21 @@
                 </div>
             </div>
             
+            <!-- Center Live Chat Hub panel -->
+            <div class="panel" style="display: flex; flex-direction: column; min-height: 480px;">
+                <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 10px; margin-bottom: 20px;">
+                    <span>Live Admin Chat Hub</span>
+                    <button class="admin-btn" style="width: auto; padding: 4px 10px; font-size: 11px; background: var(--royal-red); font-weight: bold; text-transform: uppercase;" onclick="purgeAllMessagesConfirm();">Purge Logs</button>
+                </div>
+                
+                <div id="adminChatBox" style="border: 1px solid var(--border-color); flex-grow: 1; height: 350px; overflow-y: auto; padding: 15px; background: rgba(10, 12, 18, 0.4); border-radius: 8px; margin-bottom: 15px;"></div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="adminChatMessage" class="admin-input" placeholder="Type admin message..." onkeydown="if(event.keyCode===13) transmitAdminMessage();" autocomplete="off">
+                    <button class="admin-btn" style="width: auto; padding: 0 20px;" onclick="transmitAdminMessage();">Send</button>
+                </div>
+            </div>
+            
             <!-- Right quick ban console -->
             <div class="panel">
                 <div class="panel-title">Instant Ban Core</div>
@@ -437,7 +452,7 @@
                 
                 <button class="admin-btn" style="background: var(--royal-red);" onclick="executeBanDirect();">Execute Lockout</button>
                 
-                <div id="consoleLog" class="console-log">
+                <div id="consoleLog" class="console-log" style="height: 200px;">
                     &gt; Operations Console Initialized...<br>
                     &gt; Administrative session monitoring active.
                 </div>
@@ -456,7 +471,9 @@
             var log = document.getElementById("consoleLog");
             var date = new Date();
             var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            log.innerHTML += "<br>&gt; [" + timeStr + "] " + message;
+            var line = document.createElement("div");
+            line.textContent = "> [" + timeStr + "] " + message;
+            log.appendChild(line);
             log.scrollTop = log.scrollHeight;
         }
 
@@ -466,6 +483,7 @@
                 document.getElementById("authGate").style.display = "none";
                 document.getElementById("mainDashboard").style.display = "block";
                 logToConsole("Administrator Session Restored from Cache.");
+                initializeAdminChat();
             }
         };
 
@@ -500,6 +518,7 @@
                     document.getElementById("authGate").style.display = "none";
                     document.getElementById("mainDashboard").style.display = "block";
                     logToConsole("Administrator Session Established.");
+                    initializeAdminChat();
                 } else {
                     throw new Error("Malformed session payload.");
                 }
@@ -578,14 +597,33 @@
             statusTag.className = "user-status-tag " + (data.passwordHashStatus === 'BANNED' ? 'status-banned' : 'status-active');
 
             var banAccBtn = document.getElementById("banAccountBtn");
+            var muteAccBtn = document.getElementById("muteAccountBtn");
+            if (!muteAccBtn) {
+                muteAccBtn = document.createElement("button");
+                muteAccBtn.id = "muteAccountBtn";
+                muteAccBtn.className = "ban-btn-inline";
+                muteAccBtn.style.marginLeft = "10px";
+                muteAccBtn.style.borderColor = "var(--accent-purple)";
+                muteAccBtn.style.color = "var(--accent-purple)";
+                muteAccBtn.style.background = "rgba(139, 92, 246, 0.05)";
+                muteAccBtn.style.padding = "6px 12px";
+                muteAccBtn.textContent = "MUTE USER";
+                banAccBtn.parentNode.appendChild(muteAccBtn);
+            }
+
             if (data.passwordHashStatus === 'BANNED') {
                 banAccBtn.style.display = "none";
+                muteAccBtn.style.display = "none";
             } else {
                 banAccBtn.style.display = "block";
+                muteAccBtn.style.display = "block";
                 banAccBtn.onclick = function() {
                     if (confirm("Are you sure you want to permanently BAN user account " + data.username + "?")) {
                         banTarget('account', data.username);
                     }
+                };
+                muteAccBtn.onclick = function() {
+                    muteUserPrompt(data.username);
                 };
             }
 
@@ -733,6 +771,257 @@
                 banTarget(activeBanType, target);
                 document.getElementById("banTarget").value = "";
             }
+        }
+
+        // --- Administrative Live Chat Hub Integrations ---
+        function initializeAdminChat() {
+            pollAdminMessages();
+            setInterval(pollAdminMessages, 5000);
+        }
+
+        var lastAdminMsgHash = "";
+        function pollAdminMessages() {
+            fetch(CONFIG.apiBase + "/api/get-messages", {
+                method: "GET"
+            })
+            .then(function(res) {
+                return res.json();
+            })
+            .then(function(messages) {
+                if (!messages || !Array.isArray(messages)) return;
+                var currentHash = messages.join("|");
+                if (currentHash === lastAdminMsgHash) return;
+                lastAdminMsgHash = currentHash;
+
+                var chatBox = document.getElementById("adminChatBox");
+                chatBox.innerHTML = "";
+
+                // Render oldest to newest
+                var chronMessages = messages.slice().reverse();
+                for (var i = 0; i < chronMessages.length; i++) {
+                    (function() {
+                        var rawMsg = chronMessages[i];
+                        var msgObj = JSON.parse(rawMsg);
+                        var timeString = new Date(msgObj.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        var bubble = document.createElement("div");
+                        bubble.style.border = "1px solid var(--border-color)";
+                        bubble.style.padding = "8px 12px";
+                        bubble.style.borderRadius = "6px";
+                        bubble.style.marginBottom = "10px";
+                        bubble.style.background = msgObj.userId === "Admin" ? "rgba(139, 92, 246, 0.1)" : "rgba(255, 255, 255, 0.02)";
+                        bubble.style.fontSize = "13px";
+
+                        var meta = document.createElement("div");
+                        meta.style.display = "flex";
+                        meta.style.metaAlign = "space-between";
+                        meta.style.justifyContent = "space-between";
+                        meta.style.color = "var(--text-secondary)";
+                        meta.style.fontSize = "11px";
+                        meta.style.marginBottom = "4px";
+
+                        var leftSpan = document.createElement("span");
+                        var userStrong = document.createElement("strong");
+                        userStrong.style.color = msgObj.userId === "Admin" ? "var(--accent-purple)" : "var(--text-primary)";
+                        userStrong.textContent = msgObj.userId;
+                        leftSpan.appendChild(userStrong);
+
+                        var rightSpan = document.createElement("span");
+                        rightSpan.textContent = timeString;
+
+                        meta.appendChild(leftSpan);
+                        meta.appendChild(rightSpan);
+
+                        var textDiv = document.createElement("div");
+                        textDiv.style.lineHeight = "1.4";
+                        textDiv.style.wordBreak = "break-all";
+                        textDiv.textContent = msgObj.text; // Secure textContent!
+
+                        // Controls row for Admins
+                        var controls = document.createElement("div");
+                        controls.style.marginTop = "8px";
+                        controls.style.display = "flex";
+                        controls.style.gap = "10px";
+                        controls.style.justifyContent = "flex-end";
+
+                        var delBtn = document.createElement("button");
+                        delBtn.className = "ban-btn-inline";
+                        delBtn.style.padding = "3px 8px";
+                        delBtn.style.fontSize = "10px";
+                        delBtn.textContent = "DELETE";
+                        delBtn.onclick = function() {
+                            if (confirm("Delete this message permanently?")) {
+                                deleteMessage(rawMsg);
+                            }
+                        };
+
+                        controls.appendChild(delBtn);
+
+                        if (msgObj.userId !== "Admin") {
+                            var muteBtn = document.createElement("button");
+                            muteBtn.className = "ban-btn-inline";
+                            muteBtn.style.padding = "3px 8px";
+                            muteBtn.style.fontSize = "10px";
+                            muteBtn.style.borderColor = "var(--accent-purple)";
+                            muteBtn.style.color = "var(--accent-purple)";
+                            muteBtn.style.background = "rgba(139, 92, 246, 0.05)";
+                            muteBtn.textContent = "MUTE";
+                            muteBtn.onmouseover = function() {
+                                muteBtn.style.background = "var(--accent-purple)";
+                                muteBtn.style.color = "#ffffff";
+                            };
+                            muteBtn.onmouseout = function() {
+                                muteBtn.style.background = "rgba(139, 92, 246, 0.05)";
+                                muteBtn.style.color = "var(--accent-purple)";
+                            };
+                            muteBtn.onclick = function() {
+                                muteUserPrompt(msgObj.userId);
+                            };
+                            controls.appendChild(muteBtn);
+                        }
+
+                        bubble.appendChild(meta);
+                        bubble.appendChild(textDiv);
+                        bubble.appendChild(controls);
+                        chatBox.appendChild(bubble);
+                    })();
+                }
+                chatBox.scrollTop = chatBox.scrollHeight;
+            })
+            .catch(function(err) {
+                console.error("Failed to poll chat: " + err.message);
+            });
+        }
+
+        function transmitAdminMessage() {
+            var input = document.getElementById("adminChatMessage");
+            var text = input.value.trim();
+            if (!text) return;
+
+            input.disabled = true;
+
+            fetch(CONFIG.apiBase + "/api/send-message", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    text: text,
+                    sessionToken: adminToken
+                })
+            })
+            .then(function(res) {
+                input.disabled = false;
+                if (res.status === 200) {
+                    input.value = "";
+                    pollAdminMessages();
+                    input.focus();
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Failed to transmit message.");
+                    });
+                }
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
+        }
+
+        function deleteMessage(rawMsg) {
+            fetch(CONFIG.apiBase + "/api/admin/delete-message", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Admin-Token": adminToken
+                },
+                body: JSON.stringify({ messageRaw: rawMsg })
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    logToConsole("Admin deleted message: " + JSON.parse(rawMsg).text);
+                    pollAdminMessages();
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Failed to delete message.");
+                    });
+                }
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
+        }
+
+        function purgeAllMessagesConfirm() {
+            if (confirm("⚠️ WARNING: This will permanently delete ALL messages up to this point from the platform history.\n\nAre you sure you want to PURGE the chat log?")) {
+                if (confirm("Confirm absolute purge operation? This cannot be undone.")) {
+                    purgeAllMessages();
+                }
+            }
+        }
+
+        function purgeAllMessages() {
+            fetch(CONFIG.apiBase + "/api/admin/purge-messages", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Admin-Token": adminToken
+                }
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    logToConsole("Admin executed complete Chat Log Purge.");
+                    pollAdminMessages();
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Purge failed.");
+                    });
+                }
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
+        }
+
+        function muteUserPrompt(defaultUsername) {
+            var userVal = prompt("Enter clear username to mute:", defaultUsername || "");
+            if (!userVal) return;
+            
+            var hoursStr = prompt("Mute user '" + userVal + "'.\n\nEnter duration in hours (e.g. 1 for 1 hour, 24 for 1 day, 168 for 1 week):", "1");
+            if (!hoursStr) return;
+            
+            var hours = parseInt(hoursStr, 10);
+            if (isNaN(hours) || hours <= 0) {
+                alert("Invalid duration.");
+                return;
+            }
+            muteUser(userVal, hours * 3600);
+        }
+
+        function muteUser(username, durationSeconds) {
+            fetch(CONFIG.apiBase + "/api/admin/mute-user", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Admin-Token": adminToken
+                },
+                body: JSON.stringify({
+                    username: username,
+                    durationSeconds: durationSeconds
+                })
+            })
+            .then(function(res) {
+                if (res.status === 200) {
+                    logToConsole("Muted user '" + username + "' for " + durationSeconds + " seconds.");
+                    alert("User muted successfully.");
+                } else {
+                    return res.json().then(function(data) {
+                        throw new Error(data.message || "Failed to mute user.");
+                    });
+                }
+            })
+            .catch(function(err) {
+                alert(err.message);
+            });
         }
     </script>
 </body>
