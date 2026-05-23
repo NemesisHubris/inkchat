@@ -10,6 +10,10 @@
     "directory": "frontend",
     "binding": "ASSETS"
   },
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "chat.kindlemodshelf.me/*", "zone_name": "kindlemodshelf.me" }
+  ],
   "compatibility_flags": [
     "nodejs_compat"
   ]
