@@ -1568,8 +1568,20 @@
             }
 
             var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
+
+            // Safety: reset sendInFlight after 6s if callback never fires
+            var inFlightTimer = setTimeout(function() {
+                if (sendInFlight) {
+                    sendInFlight = false;
+                    removeOptimisticMessage(tempId);
+                    input.value = text;
+                    showSendError("Send timed out. Try again.");
+                }
+            }, 6000);
+
             try {
                 window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
+                    clearTimeout(inFlightTimer);
                     sendInFlight = false;
 
                     if (err) {
@@ -1594,6 +1606,7 @@
                     input.focus();
                 });
             } catch (e) {
+                clearTimeout(inFlightTimer);
                 sendInFlight = false;
                 removeOptimisticMessage(tempId);
                 input.value = text;

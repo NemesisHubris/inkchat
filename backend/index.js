@@ -119,14 +119,23 @@ async function queryUpstash(commandArray, env) {
         endpoint += "/pipeline";
     }
 
-    const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${redisToken}`,
-            "Content-Type":  "application/json"
-        },
-        body: JSON.stringify(commandArray)
-    });
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 4000);
+
+    let response;
+    try {
+        response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${redisToken}`,
+                "Content-Type":  "application/json"
+            },
+            body: JSON.stringify(commandArray),
+            signal: controller.signal
+        });
+    } finally {
+        clearTimeout(abortTimer);
+    }
 
     if (!response.ok) {
         const errText = await response.text();
@@ -502,20 +511,26 @@ async function handleSendMessage(request, env, corsHeaders, ctx) {
             return jsonResponse({ status: "ERROR", message: "Missing parameter: text is required." }, 400, corsHeaders);
         }
 
-        // ── 1. Session resolution ────────────────────────────────────────────
+        // ── 1. Session resolution (single pipeline) ──────────────────────────
+        if (!sessionToken) {
+            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired session token." }, 401, corsHeaders);
+        }
+
+        const authChk = await queryUpstash([
+            ["GET", `session:admin:${sessionToken}`],
+            ["GET", `session:${sessionToken}`]
+        ], env);
+
         let username = null;
         let isAdmin  = false;
 
-        const adminSession = await getAdminSession(request, env, sessionToken);
-        if (adminSession) {
+        if (authChk[0].result) {
             username = "Admin";
             isAdmin  = true;
+        } else if (authChk[1].result) {
+            username = authChk[1].result;
         } else {
-            const userSession = await getUserSession(request, env, sessionToken);
-            if (!userSession) {
-                return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired session token." }, 401, corsHeaders);
-            }
-            username = userSession.username;
+            return jsonResponse({ status: "ERROR", message: "Unauthorized: Invalid or expired session token." }, 401, corsHeaders);
         }
 
         // ── 2. Policy checks (non-admin only) ────────────────────────────────
