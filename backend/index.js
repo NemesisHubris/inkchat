@@ -524,33 +524,36 @@ async function handleSendMessage(request, env, corsHeaders, ctx) {
                 return jsonResponse({ status: "ERROR", message: "Missing parameter: ink_device_id is required." }, 400, corsHeaders);
             }
 
-            // Parallel ban/mute checks
-            const [deviceStatus, accountStatus, isMuted] = await Promise.all([
-                queryUpstash(["GET", `device:status:${ink_device_id}`], env),
-                queryUpstash(["GET", `account:status:${username}`], env),
-                queryUpstash(["GET", `mute:${username}`], env)
-            ]);
+            if (text.length > 500) {
+                return jsonResponse({ status: "ERROR", message: "Payload too large: Messages are limited to 500 characters." }, 413, corsHeaders);
+            }
+
+            // Single pipeline: ban/mute + rate-limit + cooldown + duplicate + device binding
+            const rateKey = `rate:send-message:${sessionToken}`;
+            const chk = await queryUpstash([
+                ["GET",    `device:status:${ink_device_id}`],
+                ["GET",    `account:status:${username}`],
+                ["GET",    `mute:${username}`],
+                ["INCR",   rateKey],
+                ["EXPIRE", rateKey, "5"],
+                ["SET",    "chat:cooldown", "1", "NX", "EX", "1"],
+                ["LINDEX", "chat:messages", "0"],
+                ["HMGET",  `user:${username}`, "linked_devices"]
+            ], env);
+
+            const deviceStatus   = chk[0].result;
+            const accountStatus  = chk[1].result;
+            const isMuted        = chk[2].result;
+            const currentCount   = chk[3].result;
+            const cooldownSet    = chk[5].result;
+            const lastMessageRaw = chk[6].result;
+            const deviceFields   = chk[7].result;
 
             if (deviceStatus === "BANNED")  return jsonResponse({ status: "ERROR", message: "This hardware node is banned permanently." }, 403, corsHeaders);
             if (accountStatus === "BANNED") return jsonResponse({ status: "ERROR", message: "Access Denied: Your account has been permanently restricted." }, 403, corsHeaders);
             if (isMuted)                    return jsonResponse({ status: "ERROR", message: "Access Denied: You have been temporarily muted by an administrator." }, 403, corsHeaders);
 
-            if (text.length > 500) {
-                return jsonResponse({ status: "ERROR", message: "Payload too large: Messages are limited to 500 characters." }, 413, corsHeaders);
-            }
-
-            // Parallel: rate limit + global cooldown + duplicate check + device binding
-            const rateKey = `rate:send-message:${sessionToken}`;
-            const [currentCount, cooldownSet, lastMessageRaw, deviceFields] = await Promise.all([
-                queryUpstash(["INCR", rateKey], env),
-                queryUpstash(["SET", "chat:cooldown", "1", "NX", "EX", "1"], env),
-                queryUpstash(["LINDEX", "chat:messages", "0"], env),
-                queryUpstash(["HMGET", `user:${username}`, "linked_devices"], env)
-            ]);
-
-            // Set TTL on rate key only when first increment
-            if (currentCount === 1) await queryUpstash(["EXPIRE", rateKey, "5"], env);
-            if (currentCount > 3)   return jsonResponse({ status: "ERROR", message: "Rate limit exceeded: 3 messages per 5 seconds." }, 429, corsHeaders);
+            if (currentCount > 3)    return jsonResponse({ status: "ERROR", message: "Rate limit exceeded: 3 messages per 5 seconds." }, 429, corsHeaders);
             if (cooldownSet === null) return jsonResponse({ status: "ERROR", message: "Slow down! Chat is moving too fast." }, 429, corsHeaders);
 
             if (lastMessageRaw) {
