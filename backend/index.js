@@ -24,7 +24,7 @@ export default {
         const url      = new URL(request.url);
         const path     = url.pathname;
         const origin   = request.headers.get('Origin');
-        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const clientIp = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
         const ua       = request.headers.get('User-Agent') || '';
 
         // Block admin panel from mobile/Kindle UA
@@ -524,7 +524,7 @@ async function sendMessage(request, env, cors, ctx) {
 
 async function register(request, env, cors) {
     try {
-        const clientIp  = request.cf?.connectingIp || '127.0.0.1';
+        const clientIp  = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
         const rateKey   = `rate:register:${clientIp}`;
         const attempts  = await redis(['INCR', rateKey], env);
         if (attempts === 1) await redis(['EXPIRE', rateKey, '3600'], env);
@@ -590,7 +590,7 @@ async function register(request, env, cors) {
 
 async function login(request, env, cors) {
     try {
-        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const clientIp = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
         const rateKey  = `rate:login:${clientIp}`;
         const attempts = await redis(['INCR', rateKey], env);
         if (attempts === 1) await redis(['EXPIRE', rateKey, '300'], env);
@@ -736,7 +736,7 @@ async function logout(request, env, cors) {
 
 async function changePassword(request, env, cors) {
     try {
-        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const clientIp = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
         const rateKey  = `rate:chpw:${clientIp}`;
         const attempts = await redis(['INCR', rateKey], env);
         if (attempts === 1) await redis(['EXPIRE', rateKey, '300'], env);
@@ -786,7 +786,7 @@ async function requireAdmin(request, env, cors) {
 
 async function adminLogin(request, env, cors) {
     try {
-        const clientIp = request.cf?.connectingIp || '127.0.0.1';
+        const clientIp = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
         const rateKey  = `rate:admin_login:${clientIp}`;
         const attempts = await redis(['INCR', rateKey], env);
         if (attempts === 1) await redis(['EXPIRE', rateKey, '600'], env);
