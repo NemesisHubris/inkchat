@@ -1,11 +1,4 @@
-/**
- * InkChat — Cloudflare Worker Edge Proxy
- * Production-hardened messaging backend for legacy Kindle e-ink browsers.
- *
- * All secrets (UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, OPENAI_API_KEY,
- * PASSWORD_SALT, ADMIN_PASSWORD) are injected via Cloudflare Worker runtime env
- * bindings and are never transmitted to or accessible by the client.
- */
+export { ChatRoom } from "./chat-room.js";
 
 const ALLOWED_ORIGINS = [
     "https://chat.kindlemodshelf.me",
@@ -80,6 +73,7 @@ export default {
 
         // ── Route dispatch ──────────────────────────────────────────────────
 
+        if (pathname === "/ws") return handleWebSocket(request, env);
         if (pathname === "/api/moderate-content"    && request.method === "POST") return handleModerateContent(request, env, corsHeaders);
         if (pathname === "/api/get-messages"        && request.method === "GET")  return handleGetMessages(request, env, corsHeaders);
         if (pathname === "/api/send-message"        && request.method === "POST") return handleSendMessage(request, env, corsHeaders, ctx);
@@ -101,6 +95,58 @@ export default {
         return jsonResponse({ error: "Route not found." }, 404, corsHeaders);
     }
 };
+
+// ════════════════════════════════════════════════════════════
+// WebSocket
+// ════════════════════════════════════════════════════════════
+
+async function handleWebSocket(request, env) {
+    if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("Expected WebSocket upgrade", { status: 426 });
+    }
+    if (!env.CHAT_ROOM) {
+        return new Response("WebSocket unavailable", { status: 503 });
+    }
+    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName("main"));
+    return stub.fetch(request);
+}
+
+function broadcastNotify(env, ctx) {
+    if (!env.CHAT_ROOM || !ctx) return;
+    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName("main"));
+    ctx.waitUntil(stub.fetch(new Request("https://internal/broadcast", {
+        method: "POST",
+        body:   JSON.stringify({ type: "notify" })
+    })));
+}
+
+// ════════════════════════════════════════════════════════════
+// IP geo
+// ════════════════════════════════════════════════════════════
+
+function extractIpGeo(request) {
+    const cf = request.cf || {};
+    return {
+        country:  cf.country          || null,
+        city:     cf.city             || null,
+        region:   cf.region           || null,
+        postal:   cf.postalCode       || null,
+        lat:      cf.latitude         || null,
+        lon:      cf.longitude        || null,
+        asn:      cf.asn              || null,
+        org:      cf.asOrganization   || null,
+        tz:       cf.timezone         || null
+    };
+}
+
+async function storeIpGeo(ip, geo, env) {
+    try {
+        await queryUpstash(["SET", `ip_geo:${ip}`,
+            JSON.stringify({ ...geo, ip, ts: Date.now() }),
+            "EX", String(86400 * 90)   // 90-day TTL
+        ], env);
+    } catch (_) {}
+}
 
 // ════════════════════════════════════════════════════════════
 // Redis layer
@@ -503,7 +549,7 @@ async function handleGetMessages(request, env, corsHeaders) {
 async function handleSendMessage(request, env, corsHeaders, ctx) {
     try {
         const body          = await request.json();
-        const text          = body.text;
+        const text          = (body.text || "").trim();
         const sessionToken  = body.sessionToken;
         const ink_device_id = body.ink_device_id || body.fingerprint;
 
@@ -617,7 +663,10 @@ async function handleSendMessage(request, env, corsHeaders, ctx) {
             ["LTRIM", "chat:messages", "0", "99"]
         ], env);
 
-        // ── 5. Respond immediately, then moderate in background ───────────────
+        // ── 5. Notify WebSocket clients ──────────────────────────────────────
+        broadcastNotify(env, ctx);
+
+        // ── 7. Respond immediately, then moderate in background ───────────────
         // Moderation is async — if flagged the message is deleted after the fact.
         if (!isAdmin && ctx) {
             const openaiKey = env.OPENAI_API_KEY;
@@ -694,15 +743,19 @@ async function handleRegister(request, env, corsHeaders) {
         // Generate ink_device_id server-side — client stores the returned value in localStorage
         const inkDeviceId = crypto.randomUUID();
 
-        const passwordHash  = await hashPassword(normalizedUsername, password, env);
-        const clientIp      = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
-        const sessionToken  = await createUserSession(normalizedUsername, env);
+        const passwordHash = await hashPassword(normalizedUsername, password, env);
+        const clientIp     = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
+        const sessionToken = await createUserSession(normalizedUsername, env);
+        const fpSubmitted  = body.hardware_fingerprint || null;
+        const geo          = extractIpGeo(request);
 
         await queryUpstash(["HSET", userKey,
-            "password_hash",  passwordHash,
-            "linked_devices", JSON.stringify([inkDeviceId]),
-            "linked_ips",     JSON.stringify([clientIp])
+            "password_hash",       passwordHash,
+            "linked_devices",      JSON.stringify([inkDeviceId]),
+            "linked_ips",          JSON.stringify([clientIp]),
+            "linked_fingerprints", JSON.stringify(fpSubmitted ? [fpSubmitted] : [])
         ], env);
+        storeIpGeo(clientIp, geo, env);
 
         const headers = createJsonHeaders(corsHeaders);
         headers.append("Set-Cookie", buildCookie(request, USER_SESSION_COOKIE, sessionToken, { maxAge: USER_SESSION_TTL_SECONDS }));
@@ -776,16 +829,31 @@ async function handleLogin(request, env, corsHeaders) {
         }
 
         // Device binding enforcement
+        const fpSubmitted = body.hardware_fingerprint || null;
         let linkedDevices = [];
         try { linkedDevices = JSON.parse(userData.linked_devices || "[]"); } catch (_) {}
 
         if (linkedDevices.length === 0) {
             linkedDevices.push(deviceId);
         } else if (linkedDevices.indexOf(deviceId) === -1) {
-            return jsonResponse({ status: "ERROR", message: "This device is not authorized for that account." }, 403, corsHeaders);
+            // UUID not found — check hardware fingerprint (handles cookie-cleared case)
+            let fpAuthorized = false;
+            if (fpSubmitted) {
+                let linkedFp = [];
+                try { linkedFp = JSON.parse(userData.linked_fingerprints || "[]"); } catch (_) {}
+                if (linkedFp.length > 0 && linkedFp.indexOf(fpSubmitted) !== -1) {
+                    fpAuthorized = true;
+                    linkedDevices.push(deviceId); // re-bind new UUID
+                }
+            }
+            if (!fpAuthorized) {
+                return jsonResponse({ status: "ERROR", message: "This device is not authorized for that account." }, 403, corsHeaders);
+            }
         }
 
         // IP logging
+        const geo = extractIpGeo(request);
+        storeIpGeo(clientIp, geo, env);
         let linkedIps = [];
         try { linkedIps = JSON.parse(userData.linked_ips || "[]"); } catch (_) {}
         if (clientIp && linkedIps.indexOf(clientIp) === -1) linkedIps.push(clientIp);
@@ -1020,14 +1088,15 @@ async function handleAdminUserLookup(request, env, corsHeaders) {
         const accountStatus = await queryUpstash(["GET", `account:status:${username.toLowerCase()}`], env);
         const isBanned      = accountStatus === "BANNED";
 
-        // IP telemetry pipeline
+        // IP geo lookup
         let mappedIps = [];
         if (linkedIps.length > 0) {
-            const ipPipeline = linkedIps.map(ip => ["GET", `audit:failed_telemetry:${ip}`]);
+            const ipPipeline = linkedIps.map(ip => ["GET", `ip_geo:${ip}`]);
             const ipResults  = await queryUpstash(ipPipeline, env);
             for (let i = 0; i < linkedIps.length; i++) {
-                const count = parseInt(ipResults[i] ? ipResults[i].result : "0", 10) || 0;
-                mappedIps.push({ ip: linkedIps[i], failedCount: count });
+                let geo = null;
+                try { geo = JSON.parse(ipResults[i] ? ipResults[i].result : null); } catch (_) {}
+                mappedIps.push({ ip: linkedIps[i], geo });
             }
         }
 

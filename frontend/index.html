@@ -751,7 +751,6 @@
         var inboxMessages = [];
         var isInboxOpen = false;
         var dismissedNotificationTimestamps = [];
-        var bootWatchdogId = null;
         var sendInFlight = false;
         try {
             var stored = localStorage.getItem("inkchat_dismissed_notifications");
@@ -1000,35 +999,8 @@
 
         // DEVICE REGISTRATION challenge responses
         function handleInkDeviceReady(fingerprint) {
-            if (!fingerprint) {
-                return;
-            }
-
-            if (bootWatchdogId) {
-                clearTimeout(bootWatchdogId);
-                bootWatchdogId = null;
-            }
-
+            if (!fingerprint || activeDeviceFingerprint) return;
             activeDeviceFingerprint = fingerprint;
-            var deviceTokenEl = document.getElementById("deviceToken");
-            if (deviceTokenEl) {
-                deviceTokenEl.textContent = activeDeviceFingerprint.substring(0, 15) + "...";
-            }
-            
-            // Loopback flag validation
-            var isLocalhost = window.location.hostname === "localhost" || 
-                              window.location.hostname === "127.0.0.1" || 
-                              window.location.protocol === "file:";
-            var loopbackStatusEl = document.getElementById("loopbackStatus");
-            if (loopbackStatusEl) {
-                if (isLocalhost) {
-                    loopbackStatusEl.textContent = "Active Loopback (Exempt)";
-                    loopbackStatusEl.style.color = "green";
-                } else {
-                    loopbackStatusEl.textContent = "Inactive (Strict)";
-                }
-            }
-
             restoreUserSession(function(isAuthenticated) {
                 if (isAuthenticated) {
                     initializeChatWorkspace();
@@ -1059,28 +1031,10 @@
             });
         }
 
-        function beginBootstrapWatchdog() {
-            if (window.InkDeviceFingerprint && !activeDeviceFingerprint) {
-                handleInkDeviceReady(window.InkDeviceFingerprint);
-                return;
-            }
-
-            bootWatchdogId = setTimeout(function() {
-                if (activeDeviceFingerprint) {
-                    return;
-                }
-
-                if (window.InkDeviceFingerprint) {
-                    handleInkDeviceReady(window.InkDeviceFingerprint);
-                    return;
-                }
-
-                // Telemetry timed out — just proceed with session restore directly
-                handleInkDeviceReady("fallback-signature");
-            }, 2000);
+        // If the load event already fired before our listener registered, kick off manually
+        if (window.InkDeviceFingerprint && !activeDeviceFingerprint) {
+            handleInkDeviceReady(window.InkDeviceFingerprint);
         }
-
-        beginBootstrapWatchdog();
 
         // Switch login/register forms
         function switchAuthTab(mode) {
@@ -1241,7 +1195,56 @@
             };
 
             pollMessages();
-            pollingIntervalId = setInterval(pollMessages, 5000);
+            connectWebSocket();
+        }
+
+        // WEBSOCKET — real-time push notifications for new messages.
+        // The server just sends { type: "notify" } when a new message arrives;
+        // we then call pollMessages() to fetch the actual data via REST.
+        // Falls back to 5-second polling while disconnected.
+        var _ws = null;
+
+        function connectWebSocket() {
+            if (!window.WebSocket || !window.InkChatEngine) return;
+            if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
+
+            try {
+                _ws = new WebSocket(window.InkChatEngine.wsBase + "/ws");
+            } catch (e) {
+                startFallbackPolling();
+                return;
+            }
+
+            _ws.onopen = function () {
+                stopFallbackPolling();
+            };
+
+            _ws.onmessage = function () {
+                pollMessages();
+            };
+
+            _ws.onclose = function () {
+                _ws = null;
+                if (activeUserId) {
+                    startFallbackPolling();
+                    setTimeout(connectWebSocket, 3000);
+                }
+            };
+
+            _ws.onerror = function () {};
+        }
+
+        function startFallbackPolling() {
+            if (!pollingIntervalId) {
+                pollingIntervalId = setInterval(pollMessages, 5000);
+            }
+        }
+
+        function stopFallbackPolling() {
+            if (pollingIntervalId) {
+                clearInterval(pollingIntervalId);
+                pollingIntervalId = null;
+            }
         }
 
         function appendSystemMessage(text) {
@@ -1322,6 +1325,7 @@
                 }
 
                 var chatBox = document.getElementById("chatBox");
+                var wasAtBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 60;
                 chatBox.innerHTML = "";
 
                 var chronMessages = messages.slice().reverse();
@@ -1456,7 +1460,7 @@
                     } catch (e) {}
                 }
                 
-                chatBox.scrollTop = chatBox.scrollHeight;
+                if (wasAtBottom) chatBox.scrollTop = chatBox.scrollHeight;
             });
         }
 
@@ -1552,7 +1556,9 @@
             var text = input.value.trim();
             if (!text || sendInFlight) return false;
 
-            // Optimistic: show message instantly, clear input, don't lock UI
+            // Capture reply before clearing it
+            var pendingReply = activeReplyTarget;
+
             sendInFlight = true;
             input.value = "";
             document.getElementById("sendError").style.display = "none";
@@ -1564,59 +1570,64 @@
                 sendInFlight = false;
                 removeOptimisticMessage(tempId);
                 input.value = text;
+                activeReplyTarget = pendingReply;
                 return false;
             }
 
             var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
 
+            function onSendFail(msg) {
+                sendInFlight = false;
+                removeOptimisticMessage(tempId);
+                input.value = text;
+                // Restore reply context so the user doesn't lose it on error
+                if (pendingReply) {
+                    activeReplyTarget = pendingReply;
+                    document.getElementById("replyUserLabel").textContent = pendingReply.userId;
+                    document.getElementById("replyTextLabel").textContent = pendingReply.text.length > 40 ? pendingReply.text.substring(0, 40) + "..." : pendingReply.text;
+                    document.getElementById("replyPreviewBar").style.display = "block";
+                }
+                showSendError(msg);
+            }
+
             // Safety: reset sendInFlight after 6s if callback never fires
             var inFlightTimer = setTimeout(function() {
-                if (sendInFlight) {
-                    sendInFlight = false;
-                    removeOptimisticMessage(tempId);
-                    input.value = text;
-                    showSendError("Send timed out. Try again.");
-                }
+                if (sendInFlight) onSendFail("Send timed out. Try again.");
             }, 6000);
 
             try {
-                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, activeReplyTarget, function(err, response) {
+                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, pendingReply, function(err, response) {
                     clearTimeout(inFlightTimer);
-                    sendInFlight = false;
 
                     if (err) {
-                        removeOptimisticMessage(tempId);
-                        input.value = text;
                         var errMsg = err.status === 429 ? "Slow down — wait a moment before sending again." :
                                      err.status === 409 ? "Already sent — type something new." :
                                      "Send failed. Try again.";
-                        showSendError(errMsg);
+                        onSendFail(errMsg);
                         return;
                     }
 
                     if (response && response.status === "ERROR") {
-                        removeOptimisticMessage(tempId);
-                        input.value = text;
-                        showSendError(response.message || "Message blocked.");
+                        onSendFail(response.message || "Message blocked.");
                         return;
                     }
 
+                    sendInFlight = false;
                     // Confirmed — poll to replace optimistic bubble with server version
                     pollMessages();
                     input.focus();
                 });
             } catch (e) {
                 clearTimeout(inFlightTimer);
-                sendInFlight = false;
-                removeOptimisticMessage(tempId);
-                input.value = text;
-                showSendError("Send failed. Try again.");
+                onSendFail("Send failed. Try again.");
             }
 
             return false;
         }
 
         function handleSignOut() {
+            stopFallbackPolling();
+            if (_ws) { try { _ws.close(); } catch (e) {} _ws = null; }
             try { localStorage.removeItem("inkchat_session_token"); } catch(e) {}
             fetch(apiBase + "/api/logout", {
                 method: "POST",
