@@ -60,17 +60,48 @@
 <body>
     <div class="container">
         <h1>Terms of Service</h1>
+        <p style="font-weight: bold; text-align: center; margin-bottom: 25px;">By using InkChat, you agree to these rules. If you break them, you will be banned.</p>
         
-        <h2>Section 1: Hardware Integrity Policy</h2>
-        <p>InkChat is designed and optimized exclusively for native e-ink hardware terminals. Attempting to bypass, spoof, or modify device identifiers, canvas rendering profiles, or client-side telemetry attributes violates our platform integrity guidelines. Any session found in violation of native hardware validations will be denied immediate access.</p>
+        <h2>Kindle Only</h2>
+        <p>This app is strictly for genuine Kindle e-ink devices. Emulators, bots, or spoofing software are prohibited and will be blocked.</p>
         
-        <h2>Section 2: Anti-Spam &amp; Conduct Rules</h2>
-        <p>To preserve robust philosophical debate, human interaction is required. Automated script transmissions, duplicate flooding, and abusive profile names are prohibited. Violations of system guidelines will result in the immediate revocation of workspace access privileges.</p>
+        <h2>Be Respectful</h2>
+        <p>No harassment, threats, or abusive language. All messages are monitored by AI filters.</p>
         
-        <h2>Section 3: Access Control and Audits</h2>
-        <p>The platform monitors validation logs silently to protect system health. All access lockouts are enforced dynamically at the session level without network level disruptions for compliant nodes.</p>
+        <h2>Don't Spam</h2>
+        <p>Respect the 1-second message cooldown. Flooding the chat or using automated scripts will cause your messages to be dropped.</p>
+        
+        <h2>Privacy</h2>
+        <p>We only track your IP address and hardware signature to keep the chat secure. We never sell your data or run ads.</p>
+        
+        <h2>Enforcement</h2>
+        <p>Administrators have the final say and reserve the right to revoke your access at any time, without warning.</p>
 
         <a href="index.html" class="back-link">Back to Workspace</a>
     </div>
+
+    <script type="text/javascript">
+        (function () {
+            if (window.location.search.indexOf("error=hardware_spoof") !== -1) {
+                var container = document.querySelector(".container");
+                if (container) {
+                    var errorBlock = document.createElement("div");
+                    errorBlock.style.border = "3px solid #000000";
+                    errorBlock.style.padding = "15px";
+                    errorBlock.style.marginBottom = "25px";
+                    errorBlock.style.backgroundColor = "#000000";
+                    errorBlock.style.color = "#ffffff";
+                    errorBlock.style.fontWeight = "bold";
+                    errorBlock.style.textAlign = "center";
+                    errorBlock.style.fontSize = "14px";
+                    errorBlock.style.fontFamily = "inherit";
+                    errorBlock.style.textTransform = "uppercase";
+                    errorBlock.style.letterSpacing = "1px";
+                    errorBlock.textContent = "Access Denied: Hardware spoofing detected. InkChat is restricted to genuine Kindle Hardware.";
+                    container.insertBefore(errorBlock, container.firstChild);
+                }
+            }
+        })();
+    </script>
 </body>
 </html>

@@ -34,6 +34,7 @@ async function runTestSuite() {
     let activeTestToken = null;
     let activeTestFingerprint = "test-fingerprint-" + Date.now();
     let activeTestUsername = null;
+    let adminToken = null;
 
     // -------------------------------------------------------------------------
     // PRE-REQ: Establish a genuine session for standard anti-spam testing
@@ -193,104 +194,173 @@ async function runTestSuite() {
     }
 
     // -------------------------------------------------------------------------
-    // Test 5: Security Challenge Endpoint
+    // Test 5: Unique Browser-Generated LocalStorage ID Creation
     // -------------------------------------------------------------------------
-    let activeNonce = null;
+    let createdDeviceId = null;
     try {
-        const res = await fetch(`${BASE_URL}/api/security/challenge`, {
-            method: "GET",
-            headers: { "Content-Type": "application/json" }
-        });
-        
-        const data = await res.json();
-        const hasNonce = !!data.nonce;
-        const hasTimestamp = !!data.timestamp;
-        
-        activeNonce = data.nonce;
-        const passed = res.status === 200 && hasNonce && hasTimestamp;
-        printOutcome("Test 5: Security Challenge Generation", passed, `HTTP Status: ${res.status}, Nonce: ${activeNonce}`);
-    } catch (e) {
-        printOutcome("Test 5: Security Challenge Generation", false, e.message);
-    }
-
-    // -------------------------------------------------------------------------
-    // Test 6: Security Verify - Rejection of Incorrect Mathematical Proof
-    // -------------------------------------------------------------------------
-    try {
-        const fakeFingerprint = Buffer.from("screen:800x600|font:121.4|silicon:10|engine:blob-active").toString("base64");
-        const res = await fetch(`${BASE_URL}/api/security/verify`, {
+        const username = "tester_uuid_" + Math.floor(Math.random() * 10000);
+        const res = await fetch(`${BASE_URL}/api/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                fingerprint: fakeFingerprint,
-                nonce: activeNonce || "mock-nonce-123",
-                proof: 99999.99 // Invalid proof
+                username: username,
+                password: "SecureTestPassword123"
+                // Omitting fingerprint / ink_device_id to force server generation
             })
         });
-
-        const text = await res.text();
-        let isCorrectMessage = false;
-        try {
-            const json = JSON.parse(text);
-            isCorrectMessage = json.message === "Terminated: Violation of ToS Section 1 (Hardware & Telemetry Integrity Policy).";
-        } catch (err) {}
-
-        const passed = res.status === 403 && isCorrectMessage;
-        printOutcome("Test 6: Security Verification Rejection", passed, `HTTP Status: ${res.status}, Payload: ${text}`);
+        
+        const data = await res.json();
+        const hasUUID = !!data.ink_device_id && data.ink_device_id.length === 36;
+        
+        createdDeviceId = data.ink_device_id;
+        const passed = res.status === 200 && hasUUID;
+        printOutcome("Test 5: Unique LocalStorage ID Generation", passed, `HTTP Status: ${res.status}, Device ID: ${createdDeviceId}`);
     } catch (e) {
-        printOutcome("Test 6: Security Verification Rejection", false, e.message);
+        printOutcome("Test 5: Unique LocalStorage ID Generation", false, e.message);
     }
 
     // -------------------------------------------------------------------------
-    // Test 7: Security Verify - Acceptance of Valid Cryptographic Proof
+    // Test 6: Surgical Device-Level Ban Enforcement
     // -------------------------------------------------------------------------
     try {
-        const fontGeometry = "121.4";
-        const fakeFingerprint = Buffer.from(`screen:800x600|font:${fontGeometry}|silicon:10|engine:blob-active`).toString("base64");
-        
-        // Calculate the correct proof using the same mathematical loop as the client/server
-        const fontGeomFloat = parseFloat(fontGeometry);
-        const integrityMultiplier = 15;
-        let expectedProof = 0;
-        const nonce = activeNonce;
-        
-        if (nonce) {
-            for (let i = 0; i < nonce.length; i++) {
-                const charCode = nonce.charCodeAt(i);
-                expectedProof += (charCode * fontGeomFloat) + (i * integrityMultiplier);
-            }
-            expectedProof = Math.round(expectedProof * 10000) / 10000;
+        const token = activeTestToken || "valid-mock-session-token";
+        const testBannedDeviceId = "banned-device-uuid-" + Date.now();
 
-            const res = await fetch(`${BASE_URL}/api/security/verify`, {
+        // 1. Authenticate as Admin to execute device ban
+        let localAdminToken = adminToken;
+        if (!localAdminToken) {
+            const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: "inkchat-admin-2026" })
+            });
+            if (loginRes.status === 200) {
+                const loginData = await loginRes.json();
+                localAdminToken = loginData.token;
+            }
+        }
+
+        if (localAdminToken) {
+            // 2. Ban the target device ID
+            const banRes = await fetch(`${BASE_URL}/api/admin/ban`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Admin-Token": localAdminToken
+                },
                 body: JSON.stringify({
-                    fingerprint: fakeFingerprint,
-                    nonce: nonce,
-                    proof: expectedProof
+                    type: "device",
+                    target: testBannedDeviceId
                 })
             });
 
-            const text = await res.text();
-            let isAllowed = false;
+            // 3. Attempt message dispatch using the banned device ID
+            const sendRes = await fetch(`${BASE_URL}/api/send-message`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: "This should be blocked by device ban",
+                    sessionToken: token,
+                    ink_device_id: testBannedDeviceId
+                })
+            });
+
+            const sendData = await sendRes.text();
+            let isCorrectError = false;
             try {
-                const json = JSON.parse(text);
-                isAllowed = json.status === "ALLOWED" && json.token === fakeFingerprint;
+                const json = JSON.parse(sendData);
+                isCorrectError = json.message === "This hardware node is banned permanently.";
             } catch (err) {}
 
-            const passed = res.status === 200 && isAllowed;
-            printOutcome("Test 7: Security Verification Acceptance", passed, `HTTP Status: ${res.status}, Payload: ${text}`);
+            const passed = banRes.status === 200 && sendRes.status === 403 && isCorrectError;
+            printOutcome("Test 6: Surgical Device-Level Ban Enforcement", passed, `Ban Status: ${banRes.status}, Send Status: ${sendRes.status}, Payload: ${sendData}`);
         } else {
-            printOutcome("Test 7: Security Verification Acceptance", false, "Skipped due to missing nonce challenge.");
+            printOutcome("Test 6: Surgical Device-Level Ban Enforcement", false, "Skipped due to missing admin credentials.");
         }
     } catch (e) {
-        printOutcome("Test 7: Security Verification Acceptance", false, e.message);
+        printOutcome("Test 6: Surgical Device-Level Ban Enforcement", false, e.message);
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 7: Surgical Account-Level Ban Enforcement
+    // -------------------------------------------------------------------------
+    try {
+        const testBannedUser = "banned_user_" + Math.floor(Math.random() * 10000);
+        const testDevice = "test-device-uuid";
+
+        // 1. Create a new user profile
+        const regRes = await fetch(`${BASE_URL}/api/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: testBannedUser,
+                password: "SecureTestPassword123",
+                ink_device_id: testDevice
+            })
+        });
+
+        const regData = await regRes.json();
+        const userToken = regData.token;
+
+        // 2. Authenticate as Admin to execute account ban
+        let localAdminToken = adminToken;
+        if (!localAdminToken) {
+            const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: "inkchat-admin-2026" })
+            });
+            if (loginRes.status === 200) {
+                const loginData = await loginRes.json();
+                localAdminToken = loginData.token;
+            }
+        }
+
+        if (localAdminToken && userToken) {
+            // 3. Ban the target account
+            const banRes = await fetch(`${BASE_URL}/api/admin/ban`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Admin-Token": localAdminToken
+                },
+                body: JSON.stringify({
+                    type: "account",
+                    target: testBannedUser
+                })
+            });
+
+            // 4. Attempt message dispatch using the banned account session token
+            const sendRes = await fetch(`${BASE_URL}/api/send-message`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: "This should be blocked by account ban",
+                    sessionToken: userToken,
+                    ink_device_id: testDevice
+                })
+            });
+
+            const sendData = await sendRes.text();
+            let isCorrectError = false;
+            try {
+                const json = JSON.parse(sendData);
+                isCorrectError = json.message === "Access Denied: Your account has been permanently restricted.";
+            } catch (err) {}
+
+            const passed = banRes.status === 200 && sendRes.status === 403 && isCorrectError;
+            printOutcome("Test 7: Surgical Account-Level Ban Enforcement", passed, `Ban Status: ${banRes.status}, Send Status: ${sendRes.status}, Payload: ${sendData}`);
+        } else {
+            printOutcome("Test 7: Surgical Account-Level Ban Enforcement", false, "Skipped due to missing credentials.");
+        }
+    } catch (e) {
+        printOutcome("Test 7: Surgical Account-Level Ban Enforcement", false, e.message);
     }
 
     // -------------------------------------------------------------------------
     // Pre-req for Admin Tests: Login as Admin
     // -------------------------------------------------------------------------
-    let adminToken = null;
+    adminToken = null;
     try {
         const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
             method: "POST",
@@ -516,6 +586,33 @@ async function runTestSuite() {
         }
     } catch (e) {
         printOutcome("Test 11: Absolute Chat Log Purging", false, e.message);
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 12: Persistent Registration-Tracking Cookie Assertion
+    // -------------------------------------------------------------------------
+    try {
+        const username = "cookie_tester_" + Math.floor(Math.random() * 10000);
+        const regRes = await fetch(`${BASE_URL}/api/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: username,
+                password: "SecureTestPassword123",
+                fingerprint: "test-cookie-fingerprint"
+            })
+        });
+
+        const rawCookieHeader = regRes.headers.get("set-cookie") || "";
+        const hasRegisteredCookie = rawCookieHeader.indexOf("has_registered=true") !== -1;
+        const hasMaxAge = rawCookieHeader.indexOf("Max-Age=31536000") !== -1;
+        const hasLax = rawCookieHeader.indexOf("SameSite=Lax") !== -1;
+        const hasSecure = rawCookieHeader.indexOf("Secure") !== -1;
+
+        const passed = regRes.status === 200 && hasRegisteredCookie && hasMaxAge && hasLax && hasSecure;
+        printOutcome("Test 12: Persistent Registration Cookie Set", passed, `Set-Cookie Header: ${rawCookieHeader}`);
+    } catch (e) {
+        printOutcome("Test 12: Persistent Registration Cookie Set", false, e.message);
     }
 
     console.log("\n=================================================================");

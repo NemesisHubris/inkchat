@@ -546,27 +546,27 @@
      * Written strictly in ES5 JavaScript using raw XHR protocols.
      */
     window.InkChatEngine = {
-        login: function (username, password, fingerprint, callback) {
+        login: function (username, password, deviceId, callback) {
             var payload = {
                 username: username,
                 password: password,
-                fingerprint: fingerprint
+                ink_device_id: deviceId
             };
             dispatchXhrPost(CONFIG.apiBase + "/api/login", payload, callback);
         },
-        register: function (username, password, fingerprint, callback) {
+        register: function (username, password, deviceId, callback) {
             var payload = {
                 username: username,
                 password: password,
-                fingerprint: fingerprint
+                ink_device_id: deviceId
             };
             dispatchXhrPost(CONFIG.apiBase + "/api/register", payload, callback);
         },
-        sendMessage: function (text, sessionToken, fingerprint, callback) {
+        sendMessage: function (text, sessionToken, deviceId, callback) {
             var payload = {
                 text: text,
                 sessionToken: sessionToken,
-                fingerprint: fingerprint
+                ink_device_id: deviceId
             };
             dispatchXhrPost(CONFIG.apiBase + "/api/send-message", payload, callback);
         },
@@ -625,130 +625,16 @@
         CONFIG.currentUserId = readCookie("inkchat_session_token");
 
         syncLocalStorageAndCookie(function (token, err) {
-            if (err === "DESKTOP_SPOOF_DETECTED") {
-                enforceDeviceLockout("Enforcing hardware policy: Direct desktop client spoofing is strictly prohibited.");
-                return;
+            // Bypass verification challenge: Immediately proceed with compiled token to allow standard access
+            var activeToken = token || "unregistered-hardware-signature";
+            
+            // Expose validated token to app environment
+            window.InkDeviceFingerprint = activeToken;
+            
+            if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
+                var inkReadyEvent = new CustomEvent("inkDeviceReady", { detail: { fingerprint: activeToken } });
+                window.dispatchEvent(inkReadyEvent);
             }
-
-            if (!token) {
-                enforceDeviceLockout("Failed to compile secure, stateless machine signatures.");
-                return;
-            }
-
-            // Step 1: Fetch challenge from /api/security/challenge
-            var challengeUrl = CONFIG.apiBase + "/api/security/challenge";
-            var challengeXhr = new XMLHttpRequest();
-            challengeXhr.open("GET", challengeUrl, true);
-            challengeXhr.onreadystatechange = function () {
-                if (challengeXhr.readyState === 4) {
-                    if (challengeXhr.status >= 200 && challengeXhr.status < 300) {
-                        var challengeData = null;
-                        try {
-                            challengeData = JSON.parse(challengeXhr.responseText);
-                        } catch (e) {}
-                        
-                        if (challengeData && challengeData.nonce) {
-                            var nonce = challengeData.nonce;
-                            
-                            // Step 2: Extract fontGeometry and compile mathematical proof
-                            var decodedSig = "";
-                            try {
-                                if (typeof window.atob === "function") {
-                                    decodedSig = window.atob(token);
-                                } else {
-                                    decodedSig = window.atob(token);
-                                }
-                            } catch (e) {
-                                enforceDeviceLockout("Failed to decode machine signature.");
-                                return;
-                            }
-                            
-                            var parts = decodedSig.split("|");
-                            var fontGeometry = "";
-                            for (var i = 0; i < parts.length; i++) {
-                                if (parts[i].indexOf("font:") === 0) {
-                                    fontGeometry = parts[i].substring(5);
-                                }
-                            }
-                            
-                            var fontGeomFloat = parseFloat(fontGeometry);
-                            if (isNaN(fontGeomFloat)) {
-                                fontGeomFloat = 0;
-                            }
-                            
-                            // Verify prototype integrity
-                            var integrityMultiplier = 1;
-                            try {
-                                if (CanvasRenderingContext2D.prototype.measureText.toString().indexOf('[native code]') !== -1) {
-                                    integrityMultiplier *= 3;
-                                } else {
-                                    integrityMultiplier *= 7;
-                                }
-                            } catch (e) {
-                                integrityMultiplier *= 11;
-                            }
-
-                            try {
-                                if (HTMLCanvasElement.prototype.getContext.toString().indexOf('[native code]') !== -1) {
-                                    integrityMultiplier *= 5;
-                                } else {
-                                    integrityMultiplier *= 13;
-                                }
-                            } catch (e) {
-                                integrityMultiplier *= 17;
-                            }
-                            
-                            // Run the math loop
-                            var proof = 0;
-                            for (var j = 0; j < nonce.length; j++) {
-                                var charCode = nonce.charCodeAt(j);
-                                proof += (charCode * fontGeomFloat) + (j * integrityMultiplier);
-                            }
-                            proof = Math.round(proof * 10000) / 10000;
-                            
-                            // Step 3: Submit proof and fingerprint to /api/security/verify
-                            dispatchXhrPost(CONFIG.apiBase + "/api/security/verify", {
-                                fingerprint: token,
-                                nonce: nonce,
-                                proof: proof
-                            }, function (verifyErr, verifyResponse) {
-                                if (verifyErr) {
-                                    if (verifyErr.status === 403) {
-                                        enforceDeviceLockout(verifyErr.message || "This physical hardware terminal has been restricted due to policy violations.");
-                                    } else {
-                                        enforceDeviceLockout("Handshake Gateway Failure. The security verification server could not be resolved.");
-                                    }
-                                    return;
-                                }
-                                
-                                if (verifyResponse) {
-                                    if (verifyResponse.status === "BANNED") {
-                                        enforceDeviceLockout(verifyResponse.message || "This physical hardware terminal has been banned permanently due to content violations.");
-                                    } else if (verifyResponse.status === "DENIED") {
-                                        enforceDeviceLockout(verifyResponse.message || "Enforcing policy: Only one account allowed per physical device.");
-                                    } else if (verifyResponse.status === "ALLOWED") {
-                                        // Handshake passed, expose validated token to app environment
-                                        window.InkDeviceFingerprint = token;
-                                        
-                                        if (typeof window.dispatchEvent === "function" && typeof window.CustomEvent === "function") {
-                                            var inkReadyEvent = new CustomEvent("inkDeviceReady", { detail: { fingerprint: token } });
-                                            window.dispatchEvent(inkReadyEvent);
-                                        }
-                                    }
-                                } else {
-                                    enforceDeviceLockout("Handshake response payload corrupted.");
-                                }
-                            });
-                            
-                        } else {
-                            enforceDeviceLockout("Cryptographic Challenge payload corrupted.");
-                        }
-                    } else {
-                        enforceDeviceLockout("Failed to fetch Cryptographic Challenge. Handshake Gateway down.");
-                    }
-                }
-            };
-            challengeXhr.send(null);
         });
     }
 

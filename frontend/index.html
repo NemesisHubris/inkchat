@@ -304,6 +304,7 @@
             </div>
             
             <form id="authForm" onsubmit="return handleAuthSubmit(event);">
+                <div id="authNotice" style="display: none; font-size: 11px; font-weight: bold; border: 2px dashed #000000; padding: 8px; margin-bottom: 12px; background: #fafafa; text-align: left; line-height: 1.4;"></div>
                 <div id="authFields">
                     <div class="input-group">
                         <label for="authUsername">Username</label>
@@ -332,10 +333,13 @@
     <div id="tosModal" class="tos-modal" style="display: none;">
         <div class="tos-content">
             <h2>Terms of Use</h2>
-            <div class="tos-text">
-                <p><strong>1. Robust Intellectual Discourse:</strong> InkChat is built strictly to facilitate open, robust, and unfiltered philosophical and political debate.</p>
-                <p><strong>2. Immediate Zero-Tolerance Lockouts:</strong> Threatening physical violence, sharing sexually explicit materials, or spamming profanity will result in a permanent hardware lockout ban.</p>
-                <p><strong>3. Spoofing and Automated Actions:</strong> spoofs or automated scripting profiles are blocked at the gate to ensure genuine human-to-human terminal interactions.</p>
+            <div class="tos-text" style="text-align: left;">
+                <p style="font-weight: bold;">By using InkChat, you agree to these rules. If you break them, you will be banned.</p>
+                <p><strong>Kindle Only:</strong> This app is strictly for genuine Kindle e-ink devices. Emulators, bots, or spoofing software are prohibited and will be blocked.</p>
+                <p><strong>Be Respectful:</strong> No harassment, threats, or abusive language. All messages are monitored by AI filters.</p>
+                <p><strong>Don't Spam:</strong> Respect the 1-second message cooldown. Flooding the chat or using automated scripts will cause your messages to be dropped.</p>
+                <p><strong>Privacy:</strong> We only track your IP address and hardware signature to keep the chat secure. We never sell your data or run ads.</p>
+                <p><strong>Enforcement:</strong> Administrators have the final say and reserve the right to revoke your access at any time, without warning.</p>
             </div>
             <button class="tos-close-btn" onclick="hideTosModal();">Close</button>
         </div>
@@ -390,6 +394,13 @@
     <script src="kindle-telemetry.js" type="text/javascript"></script>
 
     <script type="text/javascript">
+        (function () {
+            var isFakeKindle = (typeof window.fetch !== 'undefined' || typeof window.chrome !== 'undefined');
+            if (isFakeKindle) {
+                window.location.href = "tos.html?error=hardware_spoof";
+            }
+        })();
+
         var activeUserId = null; // Stored username for greeting
         var activeSessionToken = null; // Secure cryptographic token
         var activeDeviceFingerprint = null;
@@ -416,33 +427,39 @@
             document.cookie = name + "=" + encodeURIComponent(value) + expires + "; path=/; SameSite=Strict; Secure";
         }
 
+        function handleInkDeviceReady(fingerprint) {
+            activeDeviceFingerprint = fingerprint;
+            document.getElementById("deviceToken").textContent = activeDeviceFingerprint.substring(0, 15) + "...";
+            
+            // Session Check: If secure token cookie exists, bypass login overlay and jump to workspace
+            activeSessionToken = getCookie("inkchat_session_token");
+            activeUserId = getCookie("inkchat_username");
+            if (activeSessionToken && activeUserId) {
+                initializeChatWorkspace();
+            } else {
+                // Check persistent registration cookie to toggle form visibility
+                var hasRegisteredCookie = document.cookie.indexOf('has_registered=true') !== -1;
+                if (hasRegisteredCookie) {
+                    var tabRegister = document.getElementById("tabRegister");
+                    var authNotice = document.getElementById("authNotice");
+                    if (tabRegister) tabRegister.style.display = "none";
+                    if (authNotice) {
+                        authNotice.textContent = "An account is already linked to this browser. Please use the Login form to continue.";
+                        authNotice.style.display = "block";
+                    }
+                }
+                document.getElementById("authOverlay").style.display = "flex";
+            }
+        }
+
         // Bind to custom event dispatched by kindle-telemetry.js
         if (window.addEventListener) {
             window.addEventListener("inkDeviceReady", function(e) {
-                activeDeviceFingerprint = e.detail.fingerprint;
-                document.getElementById("deviceToken").textContent = activeDeviceFingerprint.substring(0, 15) + "...";
-                
-                // Session Check: If secure token cookie exists, bypass login overlay and jump to workspace
-                activeSessionToken = getCookie("inkchat_session_token");
-                activeUserId = getCookie("inkchat_username");
-                if (activeSessionToken && activeUserId) {
-                    initializeChatWorkspace();
-                } else {
-                    document.getElementById("authOverlay").style.display = "flex";
-                }
+                handleInkDeviceReady(e.detail.fingerprint);
             }, false);
         } else if (window.attachEvent) {
             window.attachEvent("oninkDeviceReady", function(e) {
-                activeDeviceFingerprint = e.detail.fingerprint;
-                document.getElementById("deviceToken").textContent = activeDeviceFingerprint.substring(0, 15) + "...";
-                
-                activeSessionToken = getCookie("inkchat_session_token");
-                activeUserId = getCookie("inkchat_username");
-                if (activeSessionToken && activeUserId) {
-                    initializeChatWorkspace();
-                } else {
-                    document.getElementById("authOverlay").style.display = "flex";
-                }
+                handleInkDeviceReady(e.detail.fingerprint);
             });
         }
 
@@ -518,8 +535,10 @@
             authBtn.disabled = true;
             authError.style.display = "none";
 
+            var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
+
             if (authMode === "login") {
-                window.InkChatEngine.login(username, password, activeDeviceFingerprint, function(err, response) {
+                window.InkChatEngine.login(username, password, storedDeviceId, function(err, response) {
                     unlockAuthFields();
                     if (err) {
                         authError.textContent = err.message || "Invalid username or password.";
@@ -532,12 +551,17 @@
                         setHardCookie("inkchat_session_token", activeSessionToken);
                         setHardCookie("inkchat_username", activeUserId); // Saved strictly for UI greeting
                         
+                        // Save browser-generated unique tracking ID permanently
+                        if (response.ink_device_id) {
+                            localStorage.setItem("ink_device_id", response.ink_device_id);
+                        }
+                        
                         document.getElementById("authOverlay").style.display = "none";
                         initializeChatWorkspace();
                     }
                 });
             } else {
-                window.InkChatEngine.register(username, password, activeDeviceFingerprint, function(err, response) {
+                window.InkChatEngine.register(username, password, storedDeviceId, function(err, response) {
                     unlockAuthFields();
                     if (err) {
                         authError.textContent = err.message || "Registration failed.";
@@ -548,6 +572,11 @@
                         
                         setHardCookie("inkchat_session_token", activeSessionToken);
                         setHardCookie("inkchat_username", activeUserId);
+                        
+                        // Save browser-generated unique tracking ID permanently
+                        if (response.ink_device_id) {
+                            localStorage.setItem("ink_device_id", response.ink_device_id);
+                        }
                         
                         document.getElementById("authOverlay").style.display = "none";
                         initializeChatWorkspace();
@@ -755,8 +784,9 @@
             sendBtn.disabled = true;
 
             if (window.InkChatEngine && typeof window.InkChatEngine.sendMessage === "function") {
-                // Pass secure cryptographic activeSessionToken instead of raw activeUserId
-                window.InkChatEngine.sendMessage(text, activeSessionToken, activeDeviceFingerprint, function(err, response) {
+                // Pass secure cryptographic activeSessionToken and unique browser-generated tracking ID
+                var storedDeviceId = localStorage.getItem("ink_device_id") || activeDeviceFingerprint;
+                window.InkChatEngine.sendMessage(text, activeSessionToken, storedDeviceId, function(err, response) {
                     // Unlock fields
                     input.disabled = false;
                     sendBtn.disabled = false;

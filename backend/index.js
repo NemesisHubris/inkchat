@@ -20,10 +20,20 @@ export default {
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         const pathname = url.pathname;
+        const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
+        const ua = request.headers.get("User-Agent") || "";
+
+        // Edge Gateway Check: Kindle User-Agent gate with administrative & loopback exemptions
+        const isExempt = pathname === "/admin.html" || pathname.startsWith("/api/admin") || clientIp === "127.0.0.1";
+        if (!isExempt && ua.indexOf("Kindle") === -1) {
+            return new Response("Access Denied: InkChat is restricted to Kindle Hardware.", {
+                status: 403,
+                headers: { "Content-Type": "text/plain" }
+            });
+        }
 
         // Hardened Desktop-Only Access Routing: Restrict static admin panel UI to desktop workstations
         if (pathname === "/admin.html") {
-            const ua = request.headers.get("User-Agent") || "";
             const isKindleOrMobile = /Kindle|Paperwhite|Silk|Android|iPhone|iPad|iPod|Mobile|Phone/i.test(ua);
             if (isKindleOrMobile) {
                 return new Response("Forbidden: Administrative console is strictly restricted to authorized desktop workstations.", {
@@ -33,7 +43,6 @@ export default {
             }
         }
 
-        const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
         const origin = request.headers.get("Origin");
 
         // CORS Hardening: Drop requests from unauthorized third-party origins
@@ -78,25 +87,7 @@ export default {
             });
         }
 
-        // Security API Route: POST /api/check-hardware
-        if (url.pathname === "/api/check-hardware" && request.method === "POST") {
-            return await handleCheckHardware(request, env, corsHeaders);
-        }
 
-        // Challenge-Response API: GET or POST /api/security/challenge
-        if (url.pathname === "/api/security/challenge" && (request.method === "GET" || request.method === "POST")) {
-            return await handleSecurityChallenge(request, env, corsHeaders);
-        }
-
-        // Challenge-Response API: POST /api/security/verify
-        if (url.pathname === "/api/security/verify" && request.method === "POST") {
-            return await handleSecurityVerify(request, env, corsHeaders);
-        }
-
-        // Security API Route: POST /api/register-device
-        if (url.pathname === "/api/register-device" && request.method === "POST") {
-            return await handleRegisterDevice(request, env, corsHeaders);
-        }
 
         // Security API Route: POST /api/moderate-content
         if (url.pathname === "/api/moderate-content" && request.method === "POST") {
@@ -285,146 +276,7 @@ function evaluateSafetyMultiTier(openaiData) {
     return { flagged: false };
 }
 
-/**
- * Handler: POST /api/check-hardware
- */
-async function handleCheckHardware(request, env, corsHeaders) {
-    try {
-        const body = await request.json();
-        const fingerprint = body.fingerprint;
-        const currentUserId = body.currentUserId; // In token-based sync, this represents the sessionToken
 
-        if (!fingerprint) {
-            return new Response(JSON.stringify({ 
-                status: "ERROR", 
-                message: "Missing parameter: fingerprint is required." 
-            }), {
-                status: 400,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        const deviceKey = `device:${fingerprint}`;
-        const dbResult = await queryUpstash(["GET", deviceKey], env);
-
-        // Evaluate database return state
-        if (dbResult === "BANNED") {
-            return new Response(JSON.stringify({
-                status: "BANNED",
-                message: "Enforcing security policy: This physical hardware node is banned permanently due to usage violations."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        if (dbResult) {
-            const mappedUserId = dbResult; // Bound to username
-
-            // Cryptographic session token verification inside check-hardware handshake
-            let verifiedUsername = null;
-            if (currentUserId) {
-                const sessionUser = await queryUpstash(["GET", `session:${currentUserId}`], env);
-                if (sessionUser) {
-                    verifiedUsername = sessionUser;
-                }
-            }
-
-            // Enforce One-Account-Per-Device Rule (Compare verified session username)
-            if (verifiedUsername && mappedUserId !== verifiedUsername) {
-                return new Response(JSON.stringify({
-                    status: "DENIED",
-                    message: "Enforcing policy: Only one account allowed per physical device."
-                }), {
-                    status: 200,
-                    headers: { ...corsHeaders, "Content-Type": "application/json" }
-                });
-            }
-
-            return new Response(JSON.stringify({ status: "ALLOWED" }), {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // Key is empty (clean, unmapped device node)
-        return new Response(JSON.stringify({ status: "ALLOWED" }), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-
-    } catch (err) {
-        return new Response(JSON.stringify({ 
-            status: "ERROR", 
-            message: `Internal validation proxy failure: ${err.message}` 
-        }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-    }
-}
-
-/**
- * Handler: POST /api/register-device
- */
-async function handleRegisterDevice(request, env, corsHeaders) {
-    try {
-        const body = await request.json();
-        const fingerprint = body.fingerprint;
-        const userId = body.userId;
-
-        if (!fingerprint || !userId) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Missing parameters: fingerprint and userId are required."
-            }), {
-                status: 400,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        const deviceKey = `device:${fingerprint}`;
-        const existingMapping = await queryUpstash(["GET", deviceKey], env);
-
-        if (existingMapping === "BANNED") {
-            return new Response(JSON.stringify({
-                status: "BANNED",
-                message: "This hardware node is banned permanently."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // Enforce 1-account-per-device policy on registration
-        if (existingMapping && existingMapping !== userId) {
-            return new Response(JSON.stringify({
-                status: "DENIED",
-                message: "Enforcing policy: Only one account allowed per physical device."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // Commit permanent association to Redis
-        await queryUpstash(["SET", deviceKey, userId], env);
-
-        return new Response(JSON.stringify({ status: "SUCCESS" }), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-
-    } catch (err) {
-        return new Response(JSON.stringify({
-            status: "ERROR",
-            message: `Registration write failure: ${err.message}`
-        }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-    }
-}
 
 /**
  * Handler: POST /api/moderate-content
@@ -525,7 +377,7 @@ async function handleSendMessage(request, env, corsHeaders) {
         const body = await request.json();
         const text = body.text;
         const sessionToken = body.sessionToken; // Secure cryptographic token
-        const fingerprint = body.fingerprint;
+        const ink_device_id = body.ink_device_id || body.fingerprint;
 
         if (!text || !sessionToken) {
             return new Response(JSON.stringify({
@@ -563,10 +415,10 @@ async function handleSendMessage(request, env, corsHeaders) {
 
         // 2. Perform Standard Policy Checks if NOT Admin
         if (!isAdmin) {
-            if (!fingerprint) {
+            if (!ink_device_id) {
                 return new Response(JSON.stringify({
                     status: "ERROR",
-                    message: "Missing parameter: fingerprint is required for standard users."
+                    message: "Missing parameter: ink_device_id is required."
                 }), {
                     status: 400,
                     headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -625,10 +477,9 @@ async function handleSendMessage(request, env, corsHeaders) {
                 });
             }
 
-            // Proactive Security: Enforce device lockout if hardware is BANNED
-            const deviceKey = `device:${fingerprint}`;
-            const deviceCheck = await queryUpstash(["GET", deviceKey], env);
-            if (deviceCheck === "BANNED") {
+            // Proactive Security: Enforce device lockout if unique browser tracking ID is BANNED
+            const deviceStatus = await queryUpstash(["GET", `device:status:${ink_device_id}`], env);
+            if (deviceStatus === "BANNED") {
                 return new Response(JSON.stringify({
                     status: "ERROR",
                     message: "This hardware node is banned permanently."
@@ -638,11 +489,12 @@ async function handleSendMessage(request, env, corsHeaders) {
                 });
             }
 
-            // Active Account Policy: Enforce 1-account-per-device (compare verified username)
-            if (deviceCheck && deviceCheck !== username) {
+            // Proactive Security: Enforce account status check
+            const accountStatus = await queryUpstash(["GET", `account:status:${username.toLowerCase()}`], env);
+            if (accountStatus === "BANNED") {
                 return new Response(JSON.stringify({
                     status: "ERROR",
-                    message: "Enforcing security policy: Only one account allowed per physical device."
+                    message: "Access Denied: Your account has been permanently restricted."
                 }), {
                     status: 403,
                     headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -712,11 +564,12 @@ async function handleSendMessage(request, env, corsHeaders) {
             maskedUserId = username.substring(0, 5) + "***" + username.substring(username.length - 2);
         }
 
+        // Sanitized public message payload: Never expose raw local storage IDs, session tokens, or private hardware signatures.
         const messageObject = {
             text: text,
             timestamp: Date.now(),
             userId: maskedUserId,
-            fingerprint: isAdmin ? "admin" : (fingerprint.substring(0, 8) + "...")
+            layout: "Kindle Paperwhite Pool"
         };
         const messageObjectString = JSON.stringify(messageObject);
 
@@ -752,16 +605,21 @@ async function handleRegister(request, env, corsHeaders) {
         const body = await request.json();
         const username = body.username;
         const password = body.password;
-        const fingerprint = body.fingerprint;
+        let deviceId = body.ink_device_id || body.fingerprint;
 
-        if (!username || !password || !fingerprint) {
+        if (!username || !password) {
             return new Response(JSON.stringify({
                 status: "ERROR",
-                message: "Missing parameter: Username, password, and fingerprint are required."
+                message: "Missing parameter: Username and password are required."
             }), {
                 status: 400,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
+        }
+
+        // Generate unique browser tracking ID if not supplied
+        if (!deviceId) {
+            deviceId = crypto.randomUUID();
         }
 
         // Username Moderation: Route username through OpenAI Content Moderation pipeline
@@ -799,24 +657,12 @@ async function handleRegister(request, env, corsHeaders) {
             });
         }
 
-        // Hardware Ban Check: Login/Register blocked if signature matches BANNED device list
-        const deviceKey = `device:${fingerprint}`;
-        const deviceCheck = await queryUpstash(["GET", deviceKey], env);
-        if (deviceCheck === "BANNED") {
+        // Surgical Device Ban Check: Reject registration if unique tracking ID is banned
+        const deviceStatus = await queryUpstash(["GET", `device:status:${deviceId}`], env);
+        if (deviceStatus === "BANNED") {
             return new Response(JSON.stringify({
                 status: "BANNED",
                 message: "This hardware node has been restricted permanently."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // One Account Per Device Validation: Device already mapped to another username
-        if (deviceCheck && deviceCheck !== username.toLowerCase()) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Enforcing security policy: This physical device terminal is already registered to another account."
             }), {
                 status: 403,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -840,7 +686,7 @@ async function handleRegister(request, env, corsHeaders) {
 
         // Secure hashing via WebCrypto Subtle API (Uses environmental password salt dynamic bindings)
         const passwordHash = await hashPassword(username, password, env);
-        const linkedDevicesArray = [fingerprint];
+        const linkedDevicesArray = [deviceId];
 
         // Generate Cryptographically Secure Session Token using UUIDv4 standard
         const sessionToken = crypto.randomUUID();
@@ -851,17 +697,21 @@ async function handleRegister(request, env, corsHeaders) {
 
         await queryUpstash([
             ["HSET", userKey, "password_hash", passwordHash, "linked_devices", JSON.stringify(linkedDevicesArray), "linked_ips", JSON.stringify(linkedIpsArray)],
-            ["SET", deviceKey, username.toLowerCase()],
             ["SET", `session:${sessionToken}`, username.toLowerCase(), "EX", "2592000"]
         ], env);
 
         return new Response(JSON.stringify({
             status: "SUCCESS",
             username: username.toLowerCase(),
-            token: sessionToken
+            token: sessionToken,
+            ink_device_id: deviceId
         }), {
             status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
+            headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+                "Set-Cookie": "has_registered=true; Max-Age=31536000; Path=/; SameSite=Lax; Secure"
+            }
         });
 
     } catch (err) {
@@ -884,22 +734,26 @@ async function handleLogin(request, env, corsHeaders) {
         const body = await request.json();
         const username = body.username;
         const password = body.password;
-        const fingerprint = body.fingerprint;
+        let deviceId = body.ink_device_id || body.fingerprint;
 
-        if (!username || !password || !fingerprint) {
+        if (!username || !password) {
             return new Response(JSON.stringify({
                 status: "ERROR",
-                message: "Missing parameter: Username, password, and fingerprint are required."
+                message: "Missing parameter: Username and password are required."
             }), {
                 status: 400,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
         }
 
-        // Hardware Ban Check: Prevent login attempts from restricted devices
-        const deviceKey = `device:${fingerprint}`;
-        const deviceCheck = await queryUpstash(["GET", deviceKey], env);
-        if (deviceCheck === "BANNED") {
+        // Generate unique browser tracking ID if not supplied
+        if (!deviceId) {
+            deviceId = crypto.randomUUID();
+        }
+
+        // Surgical Device Ban Check: Reject login if unique tracking ID is banned
+        const deviceStatus = await queryUpstash(["GET", `device:status:${deviceId}`], env);
+        if (deviceStatus === "BANNED") {
             return new Response(JSON.stringify({
                 status: "BANNED",
                 message: "This hardware node has been restricted permanently."
@@ -924,6 +778,18 @@ async function handleLogin(request, env, corsHeaders) {
             });
         }
 
+        // Account status ban check: Verify if account is restricted
+        const accountStatus = await queryUpstash(["GET", `account:status:${username.toLowerCase()}`], env);
+        if (accountStatus === "BANNED") {
+            return new Response(JSON.stringify({
+                status: "BANNED",
+                message: "This account has been permanently restricted."
+            }), {
+                status: 403,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
         // Compare computed hex hash (Uses environmental password salt dynamic bindings)
         const computedHash = await hashPassword(username, password, env);
         if (userData.password_hash !== computedHash) {
@@ -936,7 +802,7 @@ async function handleLogin(request, env, corsHeaders) {
             });
         }
 
-        // Verify or append linked devices mapping (Enforce 1-account-per-device rules)
+        // Verify or append linked devices mapping
         let linkedDevices = [];
         try {
             linkedDevices = JSON.parse(userData.linked_devices || "[]");
@@ -961,24 +827,12 @@ async function handleLogin(request, env, corsHeaders) {
         const sessionToken = crypto.randomUUID();
         const sessionExpirySeconds = "2592000"; // 30 Days
 
-        if (linkedDevices.indexOf(fingerprint) === -1) {
-            // Check if this device is already registered to ANOTHER user
-            if (deviceCheck && deviceCheck !== username.toLowerCase()) {
-                return new Response(JSON.stringify({
-                    status: "ERROR",
-                    message: "Enforcing security policy: This physical device terminal is bound to another user account."
-                }), {
-                    status: 403,
-                    headers: { ...corsHeaders, "Content-Type": "application/json" }
-                });
-            }
-
-            linkedDevices.push(fingerprint);
+        if (linkedDevices.indexOf(deviceId) === -1) {
+            linkedDevices.push(deviceId);
             
             // Execute atomic update writes to sync database references, save session token, and update IP list
             await queryUpstash([
                 ["HSET", userKey, "linked_devices", JSON.stringify(linkedDevices), "linked_ips", JSON.stringify(linkedIps)],
-                ["SET", deviceKey, username.toLowerCase()],
                 ["SET", `session:${sessionToken}`, username.toLowerCase(), "EX", sessionExpirySeconds]
             ], env);
         } else {
@@ -992,7 +846,8 @@ async function handleLogin(request, env, corsHeaders) {
         return new Response(JSON.stringify({
             status: "SUCCESS",
             username: username.toLowerCase(),
-            token: sessionToken
+            token: sessionToken,
+            ink_device_id: deviceId
         }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -1102,10 +957,9 @@ async function handleAdminUserLookup(request, env, corsHeaders) {
         }
 
         const userKey = `user:${username.toLowerCase()}`;
-        const userRaw = await queryUpstash(["HGETALL", userKey], env);
-        const userData = flatArrayToObject(userRaw);
+        const userExists = await queryUpstash(["EXISTS", userKey], env);
 
-        if (!userData.password_hash) {
+        if (!userExists) {
             return new Response(JSON.stringify({
                 status: "ERROR",
                 message: "User profile not found."
@@ -1115,15 +969,24 @@ async function handleAdminUserLookup(request, env, corsHeaders) {
             });
         }
 
+        // Memory isolation: Query only precise fields via HMGET instead of HGETALL
+        const fields = await queryUpstash(["HMGET", userKey, "linked_devices", "linked_ips"], env);
+        const linkedDevicesRaw = fields[0];
+        const linkedIpsRaw = fields[1];
+
         let linkedDevices = [];
         try {
-            linkedDevices = JSON.parse(userData.linked_devices || "[]");
+            linkedDevices = JSON.parse(linkedDevicesRaw || "[]");
         } catch (e) {}
 
         let linkedIps = [];
         try {
-            linkedIps = JSON.parse(userData.linked_ips || "[]");
+            linkedIps = JSON.parse(linkedIpsRaw || "[]");
         } catch (e) {}
+
+        // Look up explicit account status key instead of password hash string
+        const accountStatus = await queryUpstash(["GET", `account:status:${username.toLowerCase()}`], env);
+        const isBanned = accountStatus === "BANNED";
 
         // Query Upstash Redis store for the failed telemetry count of each IP
         let mappedIps = [];
@@ -1140,7 +1003,7 @@ async function handleAdminUserLookup(request, env, corsHeaders) {
         return new Response(JSON.stringify({
             status: "SUCCESS",
             username: username.toLowerCase(),
-            passwordHashStatus: userData.password_hash === "BANNED" ? "BANNED" : "ACTIVE",
+            passwordHashStatus: isBanned ? "BANNED" : "ACTIVE",
             linkedDevices: linkedDevices,
             linkedIps: mappedIps
         }), {
@@ -1191,9 +1054,12 @@ async function handleAdminBan(request, env, corsHeaders) {
 
         if (type === "account") {
             const userKey = `user:${target.toLowerCase()}`;
-            await queryUpstash(["HSET", userKey, "password_hash", "BANNED"], env);
+            await queryUpstash([
+                ["HSET", userKey, "password_hash", "BANNED"],
+                ["SET", `account:status:${target.toLowerCase()}`, "BANNED"]
+            ], env);
         } else if (type === "device") {
-            const deviceKey = `device:${target}`;
+            const deviceKey = `device:status:${target}`;
             await queryUpstash(["SET", deviceKey, "BANNED"], env);
         } else if (type === "ip") {
             const ipKey = `ip:${target}`;
@@ -1226,192 +1092,7 @@ async function handleAdminBan(request, env, corsHeaders) {
     }
 }
 
-/**
- * Helper: Generate signed cryptographic nonce containing a server timestamp
- */
-async function generateSignedNonce(env) {
-    const uuid = crypto.randomUUID();
-    const timestamp = Date.now();
-    const salt = env.PASSWORD_SALT;
-    if (!salt) {
-        throw new Error("Edge Environment Configuration Error: PASSWORD_SALT is not defined.");
-    }
-    
-    const encoder = new TextEncoder();
-    const data = encoder.encode(`${uuid}:${timestamp}:${salt}`);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-    
-    return `${uuid}:${timestamp}:${hashHex}`;
-}
 
-/**
- * Helper: Verify signed cryptographic nonce and check expiration (15-second window)
- */
-async function verifySignedNonce(nonce, env) {
-    if (!nonce) return { valid: false };
-    const parts = nonce.split(":");
-    if (parts.length !== 3) return { valid: false };
-    
-    const uuid = parts[0];
-    const timestampStr = parts[1];
-    const hashHex = parts[2];
-    const timestamp = parseInt(timestampStr, 10);
-    
-    if (isNaN(timestamp)) return { valid: false };
-    
-    const now = Date.now();
-    if (now - timestamp < 0 || now - timestamp > 15000) {
-        return { valid: false, error: "EXPIRED" };
-    }
-    
-    const salt = env.PASSWORD_SALT;
-    if (!salt) {
-        return { valid: false, error: "SALT_UNCONFIGURED" };
-    }
-    const encoder = new TextEncoder();
-    const data = encoder.encode(`${uuid}:${timestamp}:${salt}`);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const expectedHashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-    
-    if (hashHex !== expectedHashHex) {
-        return { valid: false, error: "INVALID_SIGNATURE" };
-    }
-    
-    return { valid: true };
-}
-
-/**
- * Handler: GET or POST /api/security/challenge
- * Generates a signed cryptographic challenge nonce.
- */
-async function handleSecurityChallenge(request, env, corsHeaders) {
-    try {
-        const nonce = await generateSignedNonce(env);
-        const parts = nonce.split(":");
-        const timestamp = parseInt(parts[1], 10);
-        
-        return new Response(JSON.stringify({
-            nonce: nonce,
-            timestamp: timestamp
-        }), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-    } catch (err) {
-        return new Response(JSON.stringify({
-            status: "ERROR",
-            message: `Challenge generation failure: ${err.message}`
-        }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-    }
-}
-
-/**
- * Handler: POST /api/security/verify
- * Performs zero-trust cryptographic challenge-response verification.
- * Silent logging and session lockout (strict no auto-bans).
- */
-async function handleSecurityVerify(request, env, corsHeaders) {
-    try {
-        const body = await request.json();
-        const fingerprint = body.fingerprint;
-        const nonce = body.nonce;
-        const proof = body.proof;
-
-        if (!fingerprint || !nonce || proof === undefined) {
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Missing parameter: fingerprint, nonce, and proof are required."
-            }), {
-                status: 400,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // 1. Hardware Ban Check: if device signature matches BANNED list
-        const deviceKey = `device:${fingerprint}`;
-        const deviceCheck = await queryUpstash(["GET", deviceKey], env);
-        if (deviceCheck === "BANNED") {
-            return new Response(JSON.stringify({
-                status: "BANNED",
-                message: "Enforcing security policy: This physical hardware node is banned permanently due to usage violations."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // 2. Verify Signed Nonce (stateless signature + 15s expiry)
-        const nonceResult = await verifySignedNonce(nonce, env);
-        
-        // 3. Decode signature to extract fontGeometry
-        let fontGeometry = "";
-        try {
-            const decodedSig = atob(fingerprint);
-            const sigParts = decodedSig.split("|");
-            for (const part of sigParts) {
-                if (part.startsWith("font:")) {
-                    fontGeometry = part.substring(5);
-                }
-            }
-        } catch (e) {
-            // Treat as failure
-        }
-
-        const fontGeomFloat = parseFloat(fontGeometry);
-        
-        // 4. Calculate expected proof
-        const integrityMultiplier = 15; // expected for genuine client
-        let expectedProof = 0;
-        for (let i = 0; i < nonce.length; i++) {
-            const charCode = nonce.charCodeAt(i);
-            expectedProof += (charCode * fontGeomFloat) + (i * integrityMultiplier);
-        }
-        expectedProof = Math.round(expectedProof * 10000) / 10000;
-
-        const isMathValid = !isNaN(fontGeomFloat) && Math.abs(proof - expectedProof) < 0.001;
-
-        if (!nonceResult.valid || !isMathValid) {
-            // Silent Telemetry Audit: Atomic increment and set 24h expiration
-            const clientIp = (request.cf && request.cf.connectingIp) ? request.cf.connectingIp : "127.0.0.1";
-            await queryUpstash([
-                ["INCRBY", `audit:failed_telemetry:${clientIp}`, "1"],
-                ["EXPIRE", `audit:failed_telemetry:${clientIp}`, "86400"]
-            ], env);
-
-            return new Response(JSON.stringify({
-                status: "ERROR",
-                message: "Terminated: Violation of ToS Section 1 (Hardware & Telemetry Integrity Policy)."
-            }), {
-                status: 403,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
-
-        // Successful validation - return success ALLOWED response to the client
-        return new Response(JSON.stringify({
-            status: "ALLOWED",
-            token: fingerprint
-        }), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-
-    } catch (err) {
-        return new Response(JSON.stringify({
-            status: "ERROR",
-            message: `Verification failure: ${err.message}`
-        }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-    }
-}
 
 /**
  * Handler: POST /api/change-password
