@@ -83,6 +83,7 @@ export default {
         if (path === '/api/admin/topics'                  && request.method === 'GET')    return adminListTopics(request, env, cors);
         if (path === '/api/admin/blocked-messages'        && request.method === 'GET')    return adminBlockedMessages(request, env, cors);
         if (path === '/api/admin/signin-log'              && request.method === 'GET')    return adminSigninLog(request, env, cors);
+        if (path === '/api/admin/delete-user'             && request.method === 'POST')   return adminDeleteUser(request, env, cors);
 
         {
             const m1 = path.match(/^\/api\/topics\/([^/]+)\/messages$/);
@@ -1380,3 +1381,39 @@ async function adminSigninLog(request, env, cors) {
         return json({ status: 'ERROR', message: err.message }, 500, cors);
     }
 }
+
+// ── Handler: POST /api/admin/delete-user ─────────────────────────────────────
+
+async function adminDeleteUser(request, env, cors) {
+    try {
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
+
+        const { username } = await request.json();
+        if (!username) return json({ status: 'ERROR', message: 'username required.' }, 400, cors);
+
+        const norm    = normalize(username);
+        const userKey = `user:${norm}`;
+        const exists  = await redis(['EXISTS', userKey], env);
+        if (!exists)  return json({ status: 'ERROR', message: 'User not found.' }, 404, cors);
+
+        // Collect all session tokens so we can delete each one
+        const tokens = await redis(['SMEMBERS', `sessions:user:${norm}`], env);
+        const list   = Array.isArray(tokens) ? tokens : [];
+
+        const keys = [
+            userKey,
+            `sessions:user:${norm}`,
+            `account:status:${norm}`,
+            `mute:${norm}`,
+            `topic:daily:${norm}`,
+            ...list.map(t => `session:${t}`)
+        ];
+        await redis(['DEL', ...keys], env);
+
+        return json({ status: 'SUCCESS', username: norm, keysDeleted: keys.length }, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
