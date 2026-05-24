@@ -16,6 +16,9 @@ const PBKDF2_ITERATIONS    = 100000;
 const PBKDF2_KEY_BYTES     = 32;
 const MESSAGE_LIMIT        = 100;       // max stored messages
 const MESSAGE_MAX_LENGTH   = 500;
+const TOPIC_NAME_MAX       = 60;
+const TOPIC_MSG_LIMIT      = 100;
+const TOPICS_MAX_LIST      = 50;
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -73,7 +76,22 @@ export default {
         if (path === '/api/admin/purge-messages'  && request.method === 'POST') return adminPurgeMessages(request, env, cors);
         if (path === '/api/admin/mute-user'       && request.method === 'POST') return adminMuteUser(request, env, cors);
         if (path === '/api/admin/reset-password'  && request.method === 'POST') return adminResetPassword(request, env, cors);
-        if (path === '/api/admin/revoke-sessions' && request.method === 'POST') return adminRevokeSessions(request, env, cors);
+        if (path === '/api/admin/revoke-sessions'        && request.method === 'POST')   return adminRevokeSessions(request, env, cors);
+        if (path === '/api/topics'                        && request.method === 'GET')    return getTopics(request, env, cors);
+        if (path === '/api/topics'                        && request.method === 'POST')   return createTopic(request, env, cors);
+        if (path === '/api/admin/strikes-leaderboard'     && request.method === 'GET')    return adminStrikesLeaderboard(request, env, cors);
+        if (path === '/api/admin/topics'                  && request.method === 'GET')    return adminListTopics(request, env, cors);
+        if (path === '/api/admin/blocked-messages'        && request.method === 'GET')    return adminBlockedMessages(request, env, cors);
+        if (path === '/api/admin/signin-log'              && request.method === 'GET')    return adminSigninLog(request, env, cors);
+
+        {
+            const m1 = path.match(/^\/api\/topics\/([^/]+)\/messages$/);
+            if (m1 && request.method === 'GET')    return getTopicMessages(m1[1], request, env, cors);
+            const m2 = path.match(/^\/api\/topics\/([^/]+)\/send$/);
+            if (m2 && request.method === 'POST')   return sendTopicMessage(m2[1], request, env, cors, ctx);
+            const m3 = path.match(/^\/api\/topics\/([^/]+)$/);
+            if (m3 && request.method === 'DELETE') return adminDeleteTopic(m3[1], request, env, cors);
+        }
 
         return json({ error: 'Not found.' }, 404, cors);
     }
@@ -90,39 +108,70 @@ async function handleWs(request, env) {
     return stub.fetch(request);
 }
 
-function broadcastNotify(env, ctx) {
+function broadcastNotify(env, ctx, topicId) {
     if (!env.CHAT_ROOM || !ctx) return;
-    const stub = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName('main'));
+    const stub    = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName('main'));
+    const payload = topicId ? { type: 'topic_notify', id: topicId } : { type: 'notify' };
     ctx.waitUntil(stub.fetch(new Request('https://internal/broadcast', {
         method: 'POST',
-        body:   JSON.stringify({ type: 'notify' })
+        body:   JSON.stringify(payload)
     })));
 }
 
-// ── IP geo ───────────────────────────────────────────────────────────────────
+// ── IP geo via ip-api.com (cached 90 days in Redis) ─────────────────────────
 
-function extractGeo(request) {
-    const cf = request.cf || {};
-    return {
-        country: cf.country        || null,
-        city:    cf.city           || null,
-        region:  cf.region         || null,
-        postal:  cf.postalCode     || null,
-        lat:     cf.latitude       || null,
-        lon:     cf.longitude      || null,
-        asn:     cf.asn            || null,
-        org:     cf.asOrganization || null,
-        tz:      cf.timezone       || null
-    };
+const LOCAL_IPS = new Set(['127.0.0.1', '::1', 'localhost']);
+
+function isPrivateIp(ip) {
+    if (!ip) return true;
+    if (LOCAL_IPS.has(ip)) return true;
+    return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
 }
 
-async function storeGeo(ip, geo, env) {
+async function fetchGeo(ip, env) {
+    if (isPrivateIp(ip)) return { ip, country: 'Local', city: 'Local', region: 'Local', isp: 'Local', org: 'Local', proxy: false, hosting: false, ts: Date.now() };
+
+    // Redis cache first
     try {
-        await redis(['SET', `ip_geo:${ip}`,
-            JSON.stringify({ ...geo, ip, ts: Date.now() }),
-            'EX', String(86400 * 90)
-        ], env);
+        const cached = await redis(['GET', `ip_geo:${ip}`], env);
+        if (cached) return JSON.parse(cached);
     } catch (_) {}
+
+    // ip-api.com (free, no key, 45 req/min)
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    try {
+        const resp = await fetch(
+            `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,regionName,city,isp,org,as,proxy,hosting,lat,lon,timezone`,
+            { signal: ctrl.signal }
+        );
+        clearTimeout(timer);
+        if (!resp.ok) return null;
+        const d = await resp.json();
+        if (d.status !== 'success') return null;
+
+        const geo = {
+            ip,
+            ts:      Date.now(),
+            country: d.country    || null,
+            city:    d.city       || null,
+            region:  d.regionName || null,
+            lat:     d.lat        || null,
+            lon:     d.lon        || null,
+            asn:     d.as         || null,
+            org:     d.org        || null,
+            isp:     d.isp        || null,
+            tz:      d.timezone   || null,
+            proxy:   d.proxy      || false,
+            hosting: d.hosting    || false
+        };
+
+        try { await redis(['SET', `ip_geo:${ip}`, JSON.stringify(geo), 'EX', String(86400 * 90)], env); } catch (_) {}
+        return geo;
+    } catch (_) {
+        clearTimeout(timer);
+        return null;
+    }
 }
 
 // ── Redis ────────────────────────────────────────────────────────────────────
@@ -236,7 +285,7 @@ function jsonWithCookies(body, status, corsHeaders, cookies) {
 function buildCorsHeaders(origin) {
     return {
         'Access-Control-Allow-Origin':      origin || ALLOWED_ORIGINS[0],
-        'Access-Control-Allow-Methods':     'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods':     'GET, POST, DELETE, OPTIONS',
         'Access-Control-Allow-Headers':     'Content-Type, Authorization, X-Admin-Token',
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Max-Age':           '86400',
@@ -378,6 +427,70 @@ async function revokeAllSessions(username, env) {
     return list.length;
 }
 
+// ── VPN / hosting detection ───────────────────────────────────────────────────
+
+const VPN_HOSTING_ORGS = [
+    // VPN providers
+    'mullvad', 'nordvpn', 'nord vpn', 'expressvpn', 'express vpn',
+    'private internet access', 'surfshark', 'protonvpn', 'proton vpn',
+    'ipvanish', 'cyberghost', 'windscribe', 'tunnelbear', 'hidemyass',
+    'hotspot shield', 'vyprvpn', 'astrill', 'hide.me', 'ivpn', 'airvpn',
+    'torguard', 'purevpn', 'perfect privacy', 'zenmate',
+    // Cloud / datacenter
+    'digitalocean', 'linode', 'akamai connected cloud', 'vultr',
+    'hetzner', 'ovhcloud', 'ovh sas', 'scaleway', 'leaseweb', 'choopa',
+    'hostwinds', 'frantech', 'buyvm', 'psychz', 'quadranet', 'voxility',
+    'amazon data services', 'amazon web services', 'amazonaws', 'amazon technologies',
+    'google cloud', 'google llc',
+    'microsoft azure', 'microsoft corporation',
+    'ibm cloud',
+    'cloudflare',   // cloudflare warp users
+    // Proxy / anonymous infra
+    'tor project', 'm247', 'datacamp', 'packethub', 'nexeon', 'hostsailor', 'tzulo'
+];
+
+function isVpnOrHosting(request) {
+    const org = ((request.cf || {}).asOrganization || '').toLowerCase();
+    if (!org) return false;
+    return VPN_HOSTING_ORGS.some(function (b) { return org.indexOf(b) !== -1; });
+}
+
+// ── Sign-in log ───────────────────────────────────────────────────────────────
+
+async function storeSignIn(userId, ip, geo, deviceId, env) {
+    try {
+        const entry = JSON.stringify({
+            userId,
+            ip,
+            geo: geo ? { city: geo.city, region: geo.region, country: geo.country, isp: geo.isp, org: geo.org, proxy: geo.proxy, hosting: geo.hosting } : null,
+            deviceId: deviceId || null,
+            timestamp: Date.now()
+        });
+        await redis([
+            ['LPUSH', 'signin:log', entry],
+            ['LTRIM', 'signin:log', '0', '499']
+        ], env);
+    } catch (_) {}
+}
+
+// ── Blocked message log ───────────────────────────────────────────────────────
+
+async function storeBlockedMessage(userId, text, reason, context, env) {
+    try {
+        const entry = JSON.stringify({
+            userId,
+            text,
+            reason:    reason || 'POLICY',
+            context:   context || 'general',   // 'general' | topic id | 'topic_name'
+            timestamp: Date.now()
+        });
+        await redis([
+            ['LPUSH', 'blocked:messages', entry],
+            ['LTRIM', 'blocked:messages', '0', '499']
+        ], env);
+    } catch (_) {}
+}
+
 // ── Content moderation ───────────────────────────────────────────────────────
 
 function evalModeration(data) {
@@ -446,16 +559,17 @@ async function sendMessage(request, env, cors, ctx) {
                 return json({ status: 'ERROR', message: `Max ${MESSAGE_MAX_LENGTH} characters.` }, 413, cors);
             }
 
-            const rateKey = `rate:send:${token}`;
+            const clientIp  = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
+            const waitSecs  = Math.floor(Math.random() * 3) + 1;
+            const rateKey   = `rate:send:${token}`;
             const chk = await redis([
                 ['GET',    `device:status:${deviceId}`],
                 ['GET',    `account:status:${username}`],
                 ['GET',    `mute:${username}`],
                 ['INCR',   rateKey],
                 ['EXPIRE', rateKey, '5'],
-                ['SET',    'chat:cooldown', '1', 'NX', 'EX', '1'],
-                ['LINDEX', 'chat:messages', '0'],
-                ['HMGET',  `user:${username}`, 'linked_devices']
+                ['SET',    `cooldown:ip:${clientIp}`, '1', 'NX', 'EX', String(waitSecs)],
+                ['LINDEX', 'chat:messages', '0']
             ], env);
 
             if (chk[0].result === 'BANNED')  return json({ status: 'ERROR', message: 'This device is banned.' }, 403, cors);
@@ -469,12 +583,6 @@ async function sendMessage(request, env, cors, ctx) {
                     const last = JSON.parse(chk[6].result);
                     if (last?.text === text) return json({ status: 'ERROR', message: 'Duplicate blocked.' }, 409, cors);
                 } catch (_) {}
-            }
-
-            let linkedDevices = [];
-            try { linkedDevices = JSON.parse(chk[7].result[0] || '[]'); } catch (_) {}
-            if (linkedDevices.length > 0 && !linkedDevices.includes(deviceId)) {
-                return json({ status: 'ERROR', message: 'Session not valid for this device.' }, 403, cors);
             }
         }
 
@@ -496,7 +604,11 @@ async function sendMessage(request, env, cors, ctx) {
         if (!isAdmin && env.OPENAI_API_KEY) {
             try {
                 const mod = await moderate(text, env);
-                if (mod.flagged) return json({ status: 'ERROR', message: 'Message blocked by content policy.' }, 400, cors);
+                if (mod.flagged) {
+                    await addStrike(username, env);
+                    await storeBlockedMessage(username, text, mod.reason, 'general', env);
+                    return json({ status: 'ERROR', message: 'Message blocked by content policy.' }, 400, cors);
+                }
             } catch (_) {}
         }
 
@@ -526,6 +638,11 @@ async function register(request, env, cors) {
         if (attempts === 1) await redis(['EXPIRE', rateKey, '3600'], env);
         if (attempts > 5)   return json({ status: 'ERROR', message: 'Too many registrations from this address. Try again in 1 hour.' }, 429, cors);
 
+        // VPN / datacenter / proxy check
+        if (isVpnOrHosting(request)) {
+            return json({ status: 'VPN', message: 'Please disable your VPN or proxy to create an account.' }, 403, cors);
+        }
+
         const body     = await request.json();
         const username = (body.username || '').trim();
         const password = body.password;
@@ -544,33 +661,36 @@ async function register(request, env, cors) {
             if (result.flagged) return json({ status: 'ERROR', message: 'Username violates content policy.' }, 400, cors);
         } catch (_) {}
 
-        const fp      = body.hardware_fingerprint || null;
-        const userKey = `user:${norm}`;
+        // Global surge detection — too many registrations in the last 60s
+        try {
+            const surgeCount = await redis(['INCR', 'surge:register'], env);
+            if (surgeCount === 1) await redis(['EXPIRE', 'surge:register', '60'], env);
+            if (surgeCount > 20) {
+                return json({ status: 'SURGE', message: 'We\'ve detected unusual activity. Please try again in a moment.' }, 503, cors);
+            }
+        } catch (_) {}
 
-        // Check for device already registered (fingerprint reverse index)
-        const [existingRaw, fpOwner] = await Promise.all([
-            redis(['HGETALL', userKey], env),
-            fp ? redis(['GET', `fp_to_user:${fp}`], env) : Promise.resolve(null)
-        ]);
-        const existing = flatMap(existingRaw);
+        const userKey    = `user:${norm}`;
+        const existingRaw = await redis(['HGETALL', userKey], env);
+        const existing   = flatMap(existingRaw);
         if (existing.password_hash) return json({ status: 'ERROR', message: 'Username is taken.' }, 400, cors);
-        if (fpOwner && fpOwner !== norm) {
-            return json({ status: 'ERROR', message: 'This device is already registered to another account. Please log in instead.' }, 403, cors);
+
+        const geoData  = await fetchGeo(clientIp, env);
+
+        // ip-api.com proxy/hosting check (complements the CF org check above)
+        if (geoData && (geoData.proxy || geoData.hosting)) {
+            return json({ status: 'VPN', message: 'Please disable your VPN or proxy to create an account.' }, 403, cors);
         }
 
-        const geo       = extractGeo(request);
-        const deviceId  = crypto.randomUUID();
-        const hash      = await hashPassword(norm, password, env);
-        const token     = await createSession(norm, env);
+        const deviceId = body.ink_device_id || crypto.randomUUID();
+        const hash     = await hashPassword(norm, password, env);
+        const token    = await createSession(norm, env);
 
         await redis(['HSET', userKey,
-            'password_hash',       hash,
-            'linked_devices',      JSON.stringify([deviceId]),
-            'linked_ips',          JSON.stringify([clientIp]),
-            'linked_fingerprints', JSON.stringify(fp ? [fp] : [])
+            'password_hash', hash,
+            'linked_ips',    JSON.stringify([clientIp])
         ], env);
-        await storeGeo(clientIp, geo, env);
-        if (fp) await redis(['SET', `fp_to_user:${fp}`, norm, 'EX', String(86400 * 730)], env);
+        await storeSignIn(norm, clientIp, geoData, body.ink_device_id || null, env);
 
         return jsonWithCookies(
             { status: 'SUCCESS', username: norm, token, ink_device_id: deviceId },
@@ -596,15 +716,15 @@ async function login(request, env, cors) {
         const username = (body.username || '').trim();
         const password = body.password;
         const norm     = normalize(username);
-        const deviceId = body.ink_device_id;
-        const fp       = body.hardware_fingerprint || null;
+        const deviceId = body.ink_device_id || null;
 
         if (!username || !password) return json({ status: 'ERROR', message: 'username and password required.' }, 400, cors);
-        if (!deviceId)              return json({ status: 'ERROR', message: 'ink_device_id required.' }, 400, cors);
 
-        // Device ban
-        const devStatus = await redis(['GET', `device:status:${deviceId}`], env);
-        if (devStatus === 'BANNED') return json({ status: 'BANNED', message: 'This device is banned.' }, 403, cors);
+        // Device ban (skip if no device ID provided)
+        if (deviceId) {
+            const devStatus = await redis(['GET', `device:status:${deviceId}`], env);
+            if (devStatus === 'BANNED') return json({ status: 'BANNED', message: 'This device is banned.' }, 403, cors);
+        }
 
         const userKey  = `user:${norm}`;
         const userData = flatMap(await redis(['HGETALL', userKey], env));
@@ -620,40 +740,21 @@ async function login(request, env, cors) {
         }
         if (!pwCheck.valid) return json({ status: 'ERROR', message: 'Invalid username or password.' }, 400, cors);
 
-        // Device binding — allow fingerprint fallback when UUID not recognized
-        let linkedDevices = [];
-        try { linkedDevices = JSON.parse(userData.linked_devices || '[]'); } catch (_) {}
-
-        if (linkedDevices.length === 0) {
-            linkedDevices.push(deviceId);
-        } else if (!linkedDevices.includes(deviceId)) {
-            let authorized = false;
-            if (fp) {
-                let linkedFp = [];
-                try { linkedFp = JSON.parse(userData.linked_fingerprints || '[]'); } catch (_) {}
-                if (linkedFp.length > 0 && linkedFp.includes(fp)) {
-                    authorized = true;
-                    linkedDevices.push(deviceId);
-                }
-            }
-            if (!authorized) return json({ status: 'ERROR', message: 'This device is not authorized.' }, 403, cors);
-        }
-
-        const geo = extractGeo(request);
-        await storeGeo(clientIp, geo, env);
+        const geoData = await fetchGeo(clientIp, env);
         let linkedIps = [];
         try { linkedIps = JSON.parse(userData.linked_ips || '[]'); } catch (_) {}
         if (!linkedIps.includes(clientIp)) linkedIps.push(clientIp);
 
         const token = await createSession(norm, env);
 
-        // Update user record (upgrade hash if legacy)
-        const updates = ['linked_devices', JSON.stringify(linkedDevices), 'linked_ips', JSON.stringify(linkedIps)];
+        // Update user record (upgrade hash if legacy, keep IP list current)
+        const updates = ['linked_ips', JSON.stringify(linkedIps)];
         if (pwCheck.upgrade) {
             const newHash = await hashPassword(norm, password, env);
             updates.push('password_hash', newHash);
         }
         await redis(['HSET', userKey, ...updates], env);
+        await storeSignIn(norm, clientIp, geoData, deviceId, env);
 
         return jsonWithCookies(
             { status: 'SUCCESS', username: norm, token, ink_device_id: deviceId },
@@ -672,20 +773,11 @@ async function sessionInfo(request, env, cors) {
         const token   = new URL(request.url).searchParams.get('token') || null;
         const session = await resolveSession(request, env, token);
 
-        let inkDeviceId = null;
-        if (session) {
-            try {
-                const fields = await redis(['HMGET', `user:${session.username}`, 'linked_devices'], env);
-                const linked = JSON.parse(fields[0] || '[]');
-                if (linked.length > 0) inkDeviceId = linked[0];
-            } catch (_) {}
-        }
-
         return json({
             authenticated: !!session,
-            username:      session?.username || null,
-            token:         session?.token    || null,
-            ink_device_id: inkDeviceId
+            username:      session ? session.username : null,
+            token:         session ? session.token    : null,
+            ink_device_id: null
         }, 200, cors);
     } catch (err) {
         return json({ authenticated: false, message: err.message }, 500, cors);
@@ -832,10 +924,11 @@ async function adminUserLookup(request, env, cors) {
         const exists  = await redis(['EXISTS', userKey], env);
         if (!exists)  return json({ status: 'ERROR', message: 'User not found.' }, 404, cors);
 
-        const [fields, accountStatus, sessionTokens] = await Promise.all([
+        const [fields, accountStatus, sessionTokens, strikeRaw] = await Promise.all([
             redis(['HMGET', userKey, 'linked_devices', 'linked_ips'], env),
             redis(['GET', `account:status:${norm}`], env),
-            redis(['SMEMBERS', `sessions:user:${norm}`], env)
+            redis(['SMEMBERS', `sessions:user:${norm}`], env),
+            redis(['HGET', userKey, 'strikes'], env)
         ]);
 
         let linkedDevices = [], linkedIps = [];
@@ -867,7 +960,8 @@ async function adminUserLookup(request, env, cors) {
             banned:         accountStatus === 'BANNED',
             linkedDevices,
             linkedIps:      mappedIps,
-            activeSessions
+            activeSessions,
+            strikes:        parseInt(strikeRaw || '0', 10)
         }, 200, cors);
     } catch (err) {
         return json({ status: 'ERROR', message: err.message }, 500, cors);
@@ -980,6 +1074,16 @@ async function adminResetPassword(request, env, cors) {
     }
 }
 
+// ── Strikes ──────────────────────────────────────────────────────────────────
+
+async function addStrike(username, env) {
+    const norm = normalize(username);
+    await redis([
+        ['HINCRBY', `user:${norm}`, 'strikes', '1'],
+        ['ZINCRBY', 'strikes:leaderboard', '1', norm]
+    ], env);
+}
+
 // ── Handler: POST /api/admin/revoke-sessions ─────────────────────────────────
 
 async function adminRevokeSessions(request, env, cors) {
@@ -992,6 +1096,286 @@ async function adminRevokeSessions(request, env, cors) {
 
         const revokedCount = await revokeAllSessions(normalize(username), env);
         return json({ status: 'SUCCESS', username, revokedCount }, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: GET /api/topics ─────────────────────────────────────────────────
+
+async function getTopics(request, env, cors) {
+    try {
+        const q   = ((new URL(request.url).searchParams.get('q')) || '').toLowerCase().trim();
+        const ids = await redis(['ZREVRANGE', 'topics', '0', String(TOPICS_MAX_LIST - 1)], env);
+        const list = Array.isArray(ids) ? ids : [];
+        if (!list.length) return json([], 200, cors);
+
+        const results = await redis(list.map(id => ['HGETALL', `topic:${id}`]), env);
+        const topics  = [];
+        for (let i = 0; i < list.length; i++) {
+            const raw  = results[i]?.result || results[i];
+            const hash = flatMap(Array.isArray(raw) ? raw : []);
+            if (!hash.name) continue;
+            if (q && hash.name.toLowerCase().indexOf(q) === -1) continue;
+            topics.push({
+                id:         list[i],
+                name:       hash.name,
+                creator:    hash.creator  || '',
+                created_at: parseInt(hash.created_at || '0', 10),
+                msg_count:  parseInt(hash.msg_count  || '0', 10)
+            });
+        }
+        return json(topics, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: POST /api/topics ────────────────────────────────────────────────
+
+async function createTopic(request, env, cors) {
+    try {
+        const body  = await request.json();
+        const name  = (body.name || '').trim();
+        const token = body.sessionToken || getCookie(request, SESSION_COOKIE);
+
+        if (!name)                      return json({ status: 'ERROR', message: 'name required.' }, 400, cors);
+        if (!token)                     return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
+        if (name.length > TOPIC_NAME_MAX) return json({ status: 'ERROR', message: `Topic name max ${TOPIC_NAME_MAX} characters.` }, 400, cors);
+
+        const session = await resolveSession(request, env, token);
+        if (!session)  return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
+
+        const norm = normalize(session.username);
+
+        const [accountStatus, muteStatus, dailyCount] = await Promise.all([
+            redis(['GET', `account:status:${norm}`], env),
+            redis(['GET', `mute:${norm}`], env),
+            redis(['GET', `topic:daily:${norm}`], env)
+        ]);
+        if (accountStatus === 'BANNED') return json({ status: 'ERROR', message: 'Account banned.' }, 403, cors);
+        if (muteStatus)                 return json({ status: 'ERROR', message: 'You are muted.' }, 403, cors);
+        if (dailyCount)                 return json({ status: 'ERROR', message: 'You can only create 1 topic per day.' }, 429, cors);
+
+        if (env.OPENAI_API_KEY) {
+            try {
+                const mod = await moderate(name, env);
+                if (mod.flagged) {
+                    await addStrike(norm, env);
+                    await storeBlockedMessage(norm, name, mod.reason, 'topic_name', env);
+                    return json({ status: 'ERROR', message: 'Topic name blocked by content policy.' }, 400, cors);
+                }
+            } catch (_) {}
+        }
+
+        const id  = crypto.randomUUID().slice(0, 8);
+        const now = Date.now();
+
+        await redis([
+            ['HSET',  `topic:${id}`, 'name', name, 'creator', norm, 'created_at', String(now), 'msg_count', '0'],
+            ['ZADD',  'topics', String(now), id],
+            ['SET',   `topic:daily:${norm}`, '1', 'EX', '86400']
+        ], env);
+
+        return json({ status: 'SUCCESS', id, name, creator: norm, created_at: now }, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: GET /api/topics/:id/messages ────────────────────────────────────
+
+async function getTopicMessages(topicId, request, env, cors) {
+    try {
+        const exists = await redis(['EXISTS', `topic:${topicId}`], env);
+        if (!exists) return json({ status: 'ERROR', message: 'Topic not found.' }, 404, cors);
+        const msgs = await redis(['LRANGE', `topic:${topicId}:messages`, '0', '49'], env);
+        return json(msgs || [], 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: POST /api/topics/:id/send ───────────────────────────────────────
+
+async function sendTopicMessage(topicId, request, env, cors, ctx) {
+    try {
+        const body     = await request.json();
+        const text     = (body.text || '').trim();
+        const deviceId = body.ink_device_id;
+        const token    = body.sessionToken || getCookie(request, ADMIN_COOKIE) || getCookie(request, SESSION_COOKIE);
+
+        if (!text)  return json({ status: 'ERROR', message: 'text is required.' }, 400, cors);
+        if (!token) return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
+        if (text.length > MESSAGE_MAX_LENGTH) return json({ status: 'ERROR', message: `Max ${MESSAGE_MAX_LENGTH} characters.` }, 413, cors);
+
+        const authChk = await redis([
+            ['GET', `session:admin:${token}`],
+            ['GET', `session:${token}`]
+        ], env);
+
+        let username = null, isAdmin = false;
+        if (authChk[0].result)      { username = 'Admin'; isAdmin = true; }
+        else if (authChk[1].result) { username = authChk[1].result; }
+        else return json({ status: 'ERROR', message: 'Unauthorized.' }, 401, cors);
+
+        const topicData = await redis(['HGETALL', `topic:${topicId}`], env);
+        const topic     = flatMap(Array.isArray(topicData) ? topicData : []);
+        if (!topic.name) return json({ status: 'ERROR', message: 'Topic not found.' }, 404, cors);
+
+        if (!isAdmin) {
+            if (!deviceId) return json({ status: 'ERROR', message: 'ink_device_id required.' }, 400, cors);
+
+            const clientIp  = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
+            const waitSecs  = Math.floor(Math.random() * 3) + 1;
+            const rateKey   = `rate:send:${token}`;
+            const chk = await redis([
+                ['GET',    `device:status:${deviceId}`],
+                ['GET',    `account:status:${username}`],
+                ['GET',    `mute:${username}`],
+                ['INCR',   rateKey],
+                ['EXPIRE', rateKey, '5'],
+                ['SET',    `cooldown:ip:${clientIp}`, '1', 'NX', 'EX', String(waitSecs)],
+                ['LINDEX', `topic:${topicId}:messages`, '0']
+            ], env);
+
+            if (chk[0].result === 'BANNED') return json({ status: 'ERROR', message: 'This device is banned.' }, 403, cors);
+            if (chk[1].result === 'BANNED') return json({ status: 'ERROR', message: 'This account is banned.' }, 403, cors);
+            if (chk[2].result)              return json({ status: 'ERROR', message: 'You are muted.' }, 403, cors);
+            if (chk[3].result > 3)          return json({ status: 'ERROR', message: 'Rate limit.' }, 429, cors);
+            if (chk[5].result === null)     return json({ status: 'ERROR', message: 'Slow down.' }, 429, cors);
+            if (chk[6].result) {
+                try { if (JSON.parse(chk[6].result)?.text === text) return json({ status: 'ERROR', message: 'Duplicate blocked.' }, 409, cors); } catch (_) {}
+            }
+        }
+
+        const msg = {
+            text,
+            timestamp: Date.now(),
+            userId:    isAdmin ? 'Admin' : username,
+            role:      isAdmin ? 'admin' : 'user'
+        };
+        if (body.replyTo) msg.replyTo = { userId: body.replyTo.userId, timestamp: body.replyTo.timestamp, text: body.replyTo.text };
+
+        if (!isAdmin && env.OPENAI_API_KEY) {
+            try {
+                const mod = await moderate(text, env);
+                if (mod.flagged) {
+                    await addStrike(username, env);
+                    await storeBlockedMessage(username, text, mod.reason, topicId, env);
+                    return json({ status: 'ERROR', message: 'Message blocked by content policy.' }, 400, cors);
+                }
+            } catch (_) {}
+        }
+
+        await redis([
+            ['LPUSH',   `topic:${topicId}:messages`, JSON.stringify(msg)],
+            ['LTRIM',   `topic:${topicId}:messages`, '0', String(TOPIC_MSG_LIMIT - 1)],
+            ['HINCRBY', `topic:${topicId}`, 'msg_count', '1']
+        ], env);
+
+        broadcastNotify(env, ctx, topicId);
+        return json({ status: 'SUCCESS' }, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: DELETE /api/topics/:id (admin) ──────────────────────────────────
+
+async function adminDeleteTopic(topicId, request, env, cors) {
+    try {
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
+
+        await redis([
+            ['DEL',  `topic:${topicId}`],
+            ['DEL',  `topic:${topicId}:messages`],
+            ['ZREM', 'topics', topicId]
+        ], env);
+        return json({ status: 'SUCCESS' }, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: GET /api/admin/topics ───────────────────────────────────────────
+
+async function adminListTopics(request, env, cors) {
+    try {
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
+
+        const ids  = await redis(['ZREVRANGE', 'topics', '0', String(TOPICS_MAX_LIST - 1)], env);
+        const list = Array.isArray(ids) ? ids : [];
+        if (!list.length) return json([], 200, cors);
+
+        const results = await redis(list.map(id => ['HGETALL', `topic:${id}`]), env);
+        const topics  = [];
+        for (let i = 0; i < list.length; i++) {
+            const raw  = results[i]?.result || results[i];
+            const hash = flatMap(Array.isArray(raw) ? raw : []);
+            if (!hash.name) continue;
+            topics.push({ id: list[i], name: hash.name, creator: hash.creator || '', created_at: parseInt(hash.created_at || '0', 10), msg_count: parseInt(hash.msg_count || '0', 10) });
+        }
+        return json(topics, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: GET /api/admin/strikes-leaderboard ──────────────────────────────
+
+async function adminStrikesLeaderboard(request, env, cors) {
+    try {
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
+
+        const raw  = await redis(['ZREVRANGE', 'strikes:leaderboard', '0', '19', 'WITHSCORES'], env);
+        const list = Array.isArray(raw) ? raw : [];
+        const result = [];
+        for (let i = 0; i < list.length; i += 2) {
+            result.push({ username: list[i], strikes: parseInt(list[i + 1] || '0', 10) });
+        }
+        return json(result, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: GET /api/admin/blocked-messages ─────────────────────────────────
+
+async function adminBlockedMessages(request, env, cors) {
+    try {
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
+
+        const raw  = await redis(['LRANGE', 'blocked:messages', '0', '199'], env);
+        const list = Array.isArray(raw) ? raw : [];
+        const result = [];
+        for (let i = 0; i < list.length; i++) {
+            try { result.push(JSON.parse(list[i])); } catch (_) {}
+        }
+        return json(result, 200, cors);
+    } catch (err) {
+        return json({ status: 'ERROR', message: err.message }, 500, cors);
+    }
+}
+
+// ── Handler: GET /api/admin/signin-log ───────────────────────────────────────
+
+async function adminSigninLog(request, env, cors) {
+    try {
+        const denied = await requireAdmin(request, env, cors);
+        if (denied) return denied;
+
+        const raw  = await redis(['LRANGE', 'signin:log', '0', '199'], env);
+        const list = Array.isArray(raw) ? raw : [];
+        const result = [];
+        for (let i = 0; i < list.length; i++) {
+            try { result.push(JSON.parse(list[i])); } catch (_) {}
+        }
+        return json(result, 200, cors);
     } catch (err) {
         return json({ status: 'ERROR', message: err.message }, 500, cors);
     }

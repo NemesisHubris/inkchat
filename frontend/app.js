@@ -4,18 +4,21 @@
 
     // ── State ─────────────────────────────────────────────────────────────
     var S = {
-        userId:    null,
-        token:     null,
-        deviceId:  null,
-        authMode:  'login',
-        reply:     null,
-        sending:   false,
-        seenTs:    {},
-        inbox:     [],
-        dismissed: {},
-        ws:        null,
-        pollTimer: null,
-        emojiOpen: false
+        userId:            null,
+        token:             null,
+        deviceId:          null,
+        authMode:          'login',
+        reply:             null,
+        sending:           false,
+        seenTs:            {},
+        inbox:             [],
+        dismissed:         {},
+        ws:                null,
+        pollTimer:         null,
+        emojiOpen:         false,
+        view:              'general',   // 'general' | 'topics-list' | 'topic-chat'
+        currentTopic:      null,        // {id, name} when in topic-chat
+        topicsSearchTimer: null
     };
 
     var EMOJIS = [
@@ -55,6 +58,11 @@
 
     function scrollDown(box) {
         box.scrollTop = box.scrollHeight;
+    }
+
+    function clearMessages() {
+        el('messages').innerHTML = '';
+        S.seenTs = {};
     }
 
     // ── Emoji picker ──────────────────────────────────────────────────────
@@ -184,17 +192,155 @@
         });
     }
 
+    // ── View switching ─────────────────────────────────────────────────────
+    function switchView(v) {
+        S.view = v;
+        var inList = (v === 'topics-list');
+        var inTopic = (v === 'topic-chat');
+
+        el('tab-general').classList.toggle('active', v === 'general');
+        el('tab-topics').classList.toggle('active',  inList || inTopic);
+
+        el('topics-view').style.display = inList   ? 'flex' : 'none';
+        el('messages').style.display    = inList   ? 'none' : '';
+        el('input-area').style.display  = inList   ? 'none' : '';
+        el('topic-bar').style.display   = inTopic  ? 'flex' : 'none';
+
+        closeEmojiPicker();
+
+        if (inList) {
+            var q = el('topics-search') ? el('topics-search').value : '';
+            loadTopics(q);
+        } else if (v === 'general') {
+            S.currentTopic = null;
+            clearMessages();
+            el('msg-input').placeholder = 'Type a message…';
+            fetchAndRender();
+        }
+    }
+
+    // ── Topics list ────────────────────────────────────────────────────────
+    function loadTopics(q) {
+        var listEl = el('topics-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<div class="topic-empty">Loading…</div>';
+
+        window.InkAPI.getTopics(q || '', function (err, list) {
+            if (err || !Array.isArray(list)) {
+                listEl.innerHTML = '<div class="topic-empty">Could not load topics.</div>';
+                return;
+            }
+            renderTopicsList(list);
+        });
+    }
+
+    function renderTopicsList(list) {
+        var listEl = el('topics-list');
+        listEl.innerHTML = '';
+
+        if (!list.length) {
+            listEl.innerHTML = '<div class="topic-empty">No topics yet. Be the first to create one!</div>';
+            return;
+        }
+
+        for (var i = 0; i < list.length; i++) {
+            (function (topic) {
+                var row = doc.createElement('div');
+                row.className = 'topic-item';
+                row.innerHTML =
+                    '<div class="topic-item-name">' + esc(topic.name) + '</div>' +
+                    '<div class="topic-item-meta">by @' + esc(topic.creator) +
+                    ' &middot; ' + topic.msg_count + ' message' + (topic.msg_count === 1 ? '' : 's') + '</div>';
+                row.onclick = function () { openTopicChat(topic); };
+                listEl.appendChild(row);
+            })(list[i]);
+        }
+    }
+
+    function topicsSearchChanged() {
+        if (S.topicsSearchTimer) clearTimeout(S.topicsSearchTimer);
+        var q = el('topics-search') ? el('topics-search').value : '';
+        S.topicsSearchTimer = setTimeout(function () { loadTopics(q); }, 300);
+    }
+
+    function openTopicChat(topic) {
+        S.currentTopic = topic;
+        clearMessages();
+        el('topic-bar-name').textContent = topic.name;
+        el('msg-input').placeholder = '#' + topic.name;
+        switchView('topic-chat');
+        fetchAndRender();
+        el('msg-input').focus();
+    }
+
+    function backToTopics() {
+        S.currentTopic = null;
+        clearMessages();
+        switchView('topics-list');
+    }
+
+    // ── Create topic modal ─────────────────────────────────────────────────
+    function openCreateTopic() {
+        el('topic-name-input').value = '';
+        hide('create-topic-err');
+        el('create-topic-btn').disabled    = false;
+        el('create-topic-btn').textContent = 'Create';
+        show('create-topic-modal');
+        el('topic-name-input').focus();
+    }
+
+    function closeCreateTopic() {
+        hide('create-topic-modal');
+    }
+
+    function submitCreateTopic() {
+        var name = el('topic-name-input').value.trim();
+        hide('create-topic-err');
+
+        if (!name) { showCreateTopicErr('Topic name is required.'); return; }
+
+        var btn = el('create-topic-btn');
+        btn.disabled    = true;
+        btn.textContent = '…';
+
+        var deviceId = localStorage.getItem('ink_device_id') || window.InkDeviceId;
+
+        window.InkAPI.createTopic(name, S.token, deviceId, function (err, res) {
+            btn.disabled    = false;
+            btn.textContent = 'Create';
+
+            if (err || !res || res.status !== 'SUCCESS') {
+                showCreateTopicErr((err && err.message) || (res && res.message) || 'Failed to create topic.');
+                return;
+            }
+
+            closeCreateTopic();
+            toast('Topic created!');
+            openTopicChat({ id: res.id, name: res.name });
+        });
+    }
+
+    function showCreateTopicErr(msg) {
+        el('create-topic-err').textContent = msg;
+        show('create-topic-err');
+    }
+
     // ── Chat workspace ─────────────────────────────────────────────────────
     function launchChat() {
         S.seenTs    = {};
         S.inbox     = [];
         S.dismissed = {};
+        S.view      = 'general';
 
         el('app').classList.add('visible');
         el('user-label').textContent = '@' + S.userId;
         el('msg-input').disabled = false;
         el('send-btn').disabled  = false;
         el('msg-input').focus();
+
+        // ensure view-tabs visible, topic-bar hidden
+        el('topic-bar').style.display  = 'none';
+        el('topics-view').style.display = 'none';
 
         el('msg-input').onkeydown = function (e) {
             closeEmojiPicker();
@@ -235,7 +381,6 @@
         bubble.id        = 'msg-' + m.timestamp;
         bubble.className = 'msg ' + (isAdm ? 'msg-admin' : isOut ? 'msg-out' : 'msg-in');
 
-        // Reply quote
         if (m.replyTo) {
             var q       = doc.createElement('div');
             q.className = 'quote';
@@ -246,7 +391,6 @@
             bubble.appendChild(q);
         }
 
-        // Meta row
         var meta       = doc.createElement('div');
         meta.className = 'msg-meta';
 
@@ -354,7 +498,6 @@
         hide('send-error');
         cancelReply();
 
-        // Optimistic bubble
         var tempId    = 'opt-' + Date.now();
         var opt       = doc.createElement('div');
         opt.id        = tempId;
@@ -382,9 +525,8 @@
             if (S.sending) fail('Send timed out. Try again.');
         }, 7000);
 
-        window.InkAPI.sendMessage(text, S.token, deviceId, pendingReply, function (err, res) {
+        function onSendResult(err, res) {
             clearTimeout(sendTimer);
-
             if (err) {
                 fail(err.status === 429 ? 'Slow down — wait a moment.' :
                      err.status === 409 ? 'Already sent — type something new.' :
@@ -395,13 +537,18 @@
                 fail(res.message || 'Message blocked.');
                 return;
             }
-
             S.sending = false;
             var o = doc.getElementById(tempId);
             if (o) o.parentNode.removeChild(o);
             fetchAndRender();
             input.focus();
-        });
+        }
+
+        if (S.view === 'topic-chat' && S.currentTopic) {
+            window.InkAPI.sendTopicMessage(S.currentTopic.id, text, S.token, deviceId, pendingReply, onSendResult);
+        } else {
+            window.InkAPI.sendMessage(text, S.token, deviceId, pendingReply, onSendResult);
+        }
 
         return false;
     }
@@ -429,9 +576,15 @@
 
     // ── Polling / WebSocket ───────────────────────────────────────────────
     function fetchAndRender() {
-        window.InkAPI.getMessages(function (err, msgs) {
-            if (!err && Array.isArray(msgs)) renderMessages(msgs);
-        });
+        if (S.view === 'topic-chat' && S.currentTopic) {
+            window.InkAPI.getTopicMessages(S.currentTopic.id, function (err, msgs) {
+                if (!err && Array.isArray(msgs)) renderMessages(msgs);
+            });
+        } else if (S.view === 'general') {
+            window.InkAPI.getMessages(function (err, msgs) {
+                if (!err && Array.isArray(msgs)) renderMessages(msgs);
+            });
+        }
     }
 
     function startPoll() {
@@ -453,7 +606,22 @@
         S.ws = ws;
 
         ws.onopen    = function () { stopPoll(); setStatus(true); };
-        ws.onmessage = function () { fetchAndRender(); };
+        ws.onmessage = function (e) {
+            var data = null;
+            try { data = JSON.parse(e.data); } catch (_) {}
+            if (data && data.type === 'topic_notify') {
+                if (S.view === 'topic-chat' && S.currentTopic && S.currentTopic.id === data.id) {
+                    fetchAndRender();
+                }
+            } else {
+                if (S.view === 'general') {
+                    fetchAndRender();
+                } else if (S.view === 'topics-list') {
+                    var q = el('topics-search') ? el('topics-search').value : '';
+                    loadTopics(q);
+                }
+            }
+        };
         ws.onclose   = function () {
             S.ws = null;
             setStatus(false);
@@ -608,7 +776,6 @@
     function onInkReady() {
         S.deviceId = window.InkDeviceId;
 
-        // Inject emoji picker into DOM above the input row
         var inputRow = el('input-row');
         if (inputRow) {
             inputRow.parentNode.insertBefore(buildEmojiPicker(), inputRow);
@@ -632,21 +799,27 @@
     if (window.InkDeviceId && !S.userId) onInkReady();
 
     // ── Expose to HTML ────────────────────────────────────────────────────
-    window.switchTab         = switchTab;
-    window.submitAuth        = submitAuth;
-    window.submitSend        = submitSend;
-    window.cancelReply       = cancelReply;
-    window.signOut           = signOut;
-    window.openTos           = openTos;
-    window.closeTos          = closeTos;
-    window.openInbox         = openInbox;
-    window.closeInbox        = closeInbox;
-    window.openSettings      = openSettings;
-    window.closeSettings     = closeSettings;
-    window.saveSettings      = saveSettings;
-    window.togglePwForm      = togglePwForm;
-    window.submitPwChange    = submitPwChange;
-    window.toggleEmojiPicker = toggleEmojiPicker;
-    window.closeEmojiPicker  = closeEmojiPicker;
+    window.switchTab           = switchTab;
+    window.submitAuth          = submitAuth;
+    window.submitSend          = submitSend;
+    window.cancelReply         = cancelReply;
+    window.signOut             = signOut;
+    window.openTos             = openTos;
+    window.closeTos            = closeTos;
+    window.openInbox           = openInbox;
+    window.closeInbox          = closeInbox;
+    window.openSettings        = openSettings;
+    window.closeSettings       = closeSettings;
+    window.saveSettings        = saveSettings;
+    window.togglePwForm        = togglePwForm;
+    window.submitPwChange      = submitPwChange;
+    window.toggleEmojiPicker   = toggleEmojiPicker;
+    window.closeEmojiPicker    = closeEmojiPicker;
+    window.switchView          = switchView;
+    window.backToTopics        = backToTopics;
+    window.topicsSearchChanged = topicsSearchChanged;
+    window.openCreateTopic     = openCreateTopic;
+    window.closeCreateTopic    = closeCreateTopic;
+    window.submitCreateTopic   = submitCreateTopic;
 
 }(window, document));

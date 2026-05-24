@@ -88,6 +88,27 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- View tabs -->
+    <div id="view-tabs">
+        <button id="tab-general" class="view-tab active" onclick="switchView('general')">General</button>
+        <button id="tab-topics"  class="view-tab"        onclick="switchView('topics-list')">Topics</button>
+    </div>
+
+    <!-- Topic breadcrumb (hidden until inside a topic) -->
+    <div id="topic-bar" style="display:none;">
+        <button class="btn btn-sm" onclick="backToTopics()">&#8592; Topics</button>
+        <span id="topic-bar-name"></span>
+    </div>
+
+    <!-- Topics list view -->
+    <div id="topics-view" style="display:none;">
+        <div id="topics-search-row">
+            <input id="topics-search" type="text" placeholder="Search topics&#8230;" onkeyup="topicsSearchChanged()" autocapitalize="off" spellcheck="false">
+            <button class="btn" onclick="openCreateTopic()">+ New</button>
+        </div>
+        <div id="topics-list"></div>
+    </div>
+
     <!-- Message list -->
     <div id="messages"></div>
 
@@ -191,6 +212,33 @@ const APP_HTML = `<!DOCTYPE html>
     </div>
 </div>
 
+<!-- ── Create Topic modal ────────────────────────────────── -->
+<div id="create-topic-modal" class="overlay">
+    <div class="modal">
+        <div class="titlebar">
+            <div class="titlebar-stripes"></div>
+            <div class="titlebar-title">New Topic</div>
+            <div class="titlebar-right">
+                <button class="icon-btn" onclick="closeCreateTopic()">X</button>
+            </div>
+        </div>
+        <div class="modal-body">
+            <div class="field">
+                <label for="topic-name-input">Topic Name</label>
+                <input id="topic-name-input" class="modal-input" type="text" maxlength="60"
+                    placeholder="e.g. Kindle Tips &amp; Tricks"
+                    autocapitalize="off" spellcheck="false">
+                <div class="field-hint">Max 60 characters. Moderated — keep it civil.</div>
+            </div>
+            <div id="create-topic-err" class="auth-error"></div>
+            <div class="modal-btns">
+                <button class="btn btn-sm" onclick="closeCreateTopic()">Cancel</button>
+                <button id="create-topic-btn" class="btn" onclick="submitCreateTopic()">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="telemetry.js"></script>
 <script src="app.js"></script>
 </body>
@@ -201,15 +249,7 @@ export default {
         const url  = new URL(request.url);
         const path = url.pathname;
 
-        // Serve the app — Kindle/e-ink only
         if (path === '/' || path === '/index.html') {
-            const ua = request.headers.get('User-Agent') || '';
-            if (!EINK_RE.test(ua)) {
-                return new Response(BLOCK_HTML, {
-                    status:  403,
-                    headers: { 'Content-Type': 'text/html;charset=utf-8' }
-                });
-            }
             return new Response(APP_HTML, {
                 status:  200,
                 headers: { 'Content-Type': 'text/html;charset=utf-8' }

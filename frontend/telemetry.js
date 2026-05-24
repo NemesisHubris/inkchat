@@ -191,6 +191,27 @@
 
         changePassword: function (oldPw, newPw, token, cb) {
             post('/api/change-password', { oldPassword: oldPw, newPassword: newPw, sessionToken: token }, cb);
+        },
+
+        getTopics: function (q, cb) {
+            get('/api/topics' + (q ? '?q=' + encodeURIComponent(q) : ''), cb);
+        },
+
+        createTopic: function (name, token, deviceId, cb) {
+            post('/api/topics', { name: name, sessionToken: token, ink_device_id: deviceId }, cb);
+        },
+
+        getTopicMessages: function (topicId, cb) {
+            get('/api/topics/' + encodeURIComponent(topicId) + '/messages', cb);
+        },
+
+        sendTopicMessage: function (topicId, text, token, deviceId, replyTo, cb) {
+            post('/api/topics/' + encodeURIComponent(topicId) + '/send', {
+                text:          text,
+                sessionToken:  token,
+                ink_device_id: deviceId,
+                replyTo:       replyTo || null
+            }, cb);
         }
     };
 
