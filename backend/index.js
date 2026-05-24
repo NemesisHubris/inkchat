@@ -640,9 +640,9 @@ async function register(request, env, cors) {
         if (attempts > 5)   return json({ status: 'ERROR', message: 'Too many registrations from this address. Try again in 1 hour.' }, 429, cors);
 
         // VPN / datacenter / proxy check
-        if (isVpnOrHosting(request)) {
-            return json({ status: 'VPN', message: 'Please disable your VPN or proxy to create an account.' }, 403, cors);
-        }
+        // if (isVpnOrHosting(request)) {
+        //     return json({ status: 'VPN', message: 'Please disable your VPN or proxy to create an account.' }, 403, cors);
+        // }
 
         const body     = await request.json();
         const username = (body.username || '').trim();
@@ -679,9 +679,9 @@ async function register(request, env, cors) {
         const geoData  = await fetchGeo(clientIp, env);
 
         // ip-api.com proxy/hosting check (complements the CF org check above)
-        if (geoData && (geoData.proxy || geoData.hosting)) {
-            return json({ status: 'VPN', message: 'Please disable your VPN or proxy to create an account.' }, 403, cors);
-        }
+        // if (geoData && (geoData.proxy || geoData.hosting)) {
+        //     return json({ status: 'VPN', message: 'Please disable your VPN or proxy to create an account.' }, 403, cors);
+        // }
 
         const deviceId = body.ink_device_id || crypto.randomUUID();
         const hash     = await hashPassword(norm, password, env);
